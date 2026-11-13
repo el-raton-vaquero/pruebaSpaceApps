@@ -19,6 +19,7 @@ import { exportTimelapseGif, exportDiscoveryCard } from '../lib/exportUtils';
 import {
   ConeResult,
   ConeFilterType,
+  propagateEpoch,
   formatMovementSpeed,
   formatSeparation,
 } from '../lib/coneSearch';
@@ -200,6 +201,7 @@ export default function Home() {
   const [coneResults, setConeResults] = useState<ConeResult[]>([]);
   const [coneRadius, setConeRadius] = useState<number>(10);
   const [coneFilters, setConeFilters] = useState<ConeFilterType[]>(['all']);
+  const [showConeOverlays, setShowConeOverlays] = useState<boolean>(true);
 
   const [retoFound, setRetoFound] = useState<boolean>(false);
   const [retoScore, setRetoScore] = useState<number>(0);
@@ -277,6 +279,7 @@ export default function Home() {
     const decParam = search.get('dec');
     const rParam = search.get('r');
     const fParam = search.get('f');
+    const selParam = search.get('sel');
     const embedParam = search.get('embed');
     const modeParam = search.get('mode');
     const langParam = search.get('lang');
@@ -307,7 +310,7 @@ export default function Home() {
           loadTarget(matchedPresetKey);
         } else {
           const customObj: AstronomicalObject = {
-            id: `custom_${raVal.toFixed(3)}_${decVal.toFixed(3)}`,
+            id: selParam || `custom_${raVal.toFixed(3)}_${decVal.toFixed(3)}`,
             n: `Centro (${raVal.toFixed(3)}°, ${decVal.toFixed(3)}°)`,
             tag: 'Coordenadas seleccionadas para exploración por radio',
             hook: 'Vecindario celeste consultado con SPHEREx y catálogos estelares.',
@@ -328,7 +331,10 @@ export default function Home() {
           setKey(customObj.id);
         }
         setView('viewer');
-        setIsConeSearchOpen(true);
+        // En modo embebido (?embed=1) el panel se oculta por defecto
+        if (embedParam !== '1') {
+          setIsConeSearchOpen(true);
+        }
         return;
       }
     }
@@ -352,6 +358,9 @@ export default function Home() {
   };
 
   const handleSelectConeResult = (item: ConeResult) => {
+    // FASE 4: Recentrar en la posición predicha para la época de SPHEREx (2026.0)
+    const predicted = propagateEpoch(item.ra, item.dec, item.pmRa, item.pmDec, 2026.0, 2016.0);
+
     const presetKey = Object.keys(OBJ).find(
       (k) => OBJ[k].n.toLowerCase() === item.name.toLowerCase() ||
         Math.hypot(OBJ[k].ra - item.ra, OBJ[k].dec - item.dec) < 0.005
@@ -387,8 +396,8 @@ export default function Home() {
           ['Separación', formatSeparation(item.sepArcsec)],
         ],
         peak: isBrownDwarf ? 0.75 : isVar ? 0.4 : 0.5,
-        ra: item.ra,
-        dec: item.dec,
+        ra: predicted.ra,
+        dec: predicted.dec,
         fitsId: `SPHX_OBJ_${item.name.replace(/[^a-zA-Z0-9]/g, '_')}`,
         mjd: 60841.5,
       };
@@ -404,9 +413,30 @@ export default function Home() {
         : coneFilters.includes('browndwarf') ? 'enanas'
         : coneFilters.includes('variable') ? 'variables'
         : 'todos';
-      history.replaceState(null, '', `?ra=${item.ra.toFixed(4)}&dec=${item.dec.toFixed(4)}&r=${coneRadius}&f=${fSlug}`);
+      history.replaceState(null, '', `?ra=${predicted.ra.toFixed(4)}&dec=${predicted.dec.toFixed(4)}&r=${coneRadius}&f=${fSlug}&sel=${encodeURIComponent(item.id)}`);
     }
   };
+
+  const handleHuntArea = useCallback(() => {
+    sound.playDetectiveFound();
+    setDisplayMode('diff');
+    setAutoHunterEnabled(true);
+    setBlinkMode(true);
+    setIsConeSearchOpen(false);
+  }, []);
+
+  const handleResultsChange = useCallback((results: ConeResult[], rad: number) => {
+    setConeRadius((prev) => (prev === rad ? prev : rad));
+    setConeResults((prev) => {
+      if (
+        prev.length === results.length &&
+        prev.every((p, i) => p.id === results[i]?.id)
+      ) {
+        return prev;
+      }
+      return results;
+    });
+  }, []);
 
   /* ---- Main Canvas Draw (Científico con renderEngine) ---- */
   const draw = useCallback(() => {
@@ -442,13 +472,24 @@ export default function Home() {
       coneResults,
       coneRadiusArcmin: coneRadius,
       isConeSearchOpen,
+      showConeOverlays,
       curtainEnabled,
       curtainSplit,
       autoHunterEnabled,
       timeTravelGaiaWise: true,
     });
 
-    setActiveFlags(res.flags);
+    if (res.flags) {
+      setActiveFlags((prev) => {
+        if (
+          prev.length === res.flags.length &&
+          prev.every((f, idx) => f === res.flags[idx])
+        ) {
+          return prev;
+        }
+        return res.flags;
+      });
+    }
   }, [
     framesResponse,
     time,
@@ -467,10 +508,16 @@ export default function Home() {
     coneResults,
     coneRadius,
     isConeSearchOpen,
+    showConeOverlays,
     curtainEnabled,
     curtainSplit,
     autoHunterEnabled,
   ]);
+
+  const drawRef = useRef(draw);
+  useEffect(() => {
+    drawRef.current = draw;
+  }, [draw]);
 
   /* ---- Loop continuo de reproducción ---- */
   useEffect(() => {
@@ -490,13 +537,13 @@ export default function Home() {
         });
       }
       lastTsRef.current = ts;
-      draw();
+      drawRef.current();
       animId = requestAnimationFrame(loop);
     };
 
     animId = requestAnimationFrame(loop);
     return () => cancelAnimationFrame(animId);
-  }, [view, playing, blinkMode, blinkHz, curtainEnabled, draw]);
+  }, [view, playing, blinkMode, blinkHz, curtainEnabled]);
 
   /* ---- Keyboard Shortcuts Completo (Space, B, D, C, H, Arrows) ---- */
   useEffect(() => {
@@ -1106,24 +1153,36 @@ export default function Home() {
                     </div>
                   )}
 
-                  {/* Badge de radio de búsqueda */}
+                  {/* Badge de radio de búsqueda con toggle para apagar/encender marcadores */}
                   {coneResults.length > 0 && (
                     <div
                       style={{
                         position: 'absolute',
                         right: 12,
                         top: 12,
-                        background: 'rgba(7,9,15,0.85)',
-                        backdropFilter: 'blur(8px)',
-                        border: '1px solid rgba(79,209,165,0.3)',
-                        borderRadius: 20,
-                        padding: '3px 10px',
-                        fontSize: 'var(--text-data)',
-                        fontWeight: 700,
-                        color: '#4fd1a5',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 6,
                       }}
                     >
-                      Radio {coneRadius}′ · {coneResults.length} objetos
+                      <button
+                        type="button"
+                        onClick={() => setShowConeOverlays((v) => !v)}
+                        style={{
+                          background: showConeOverlays ? 'rgba(7,9,15,0.88)' : 'rgba(7,9,15,0.6)',
+                          backdropFilter: 'blur(8px)',
+                          border: `1px solid ${showConeOverlays ? 'rgba(79,209,165,0.5)' : 'rgba(255,255,255,0.2)'}`,
+                          borderRadius: 20,
+                          padding: '3px 10px',
+                          fontSize: 'var(--text-data)',
+                          fontWeight: 700,
+                          color: showConeOverlays ? '#4fd1a5' : 'var(--muted)',
+                          cursor: 'pointer',
+                        }}
+                        title="Activar / Desactivar marcadores de cono sobre el visor"
+                      >
+                        🎯 Radio {coneRadius}′ · {coneResults.length} obj {showConeOverlays ? '✓' : '(ocultos)'}
+                      </button>
                     </div>
                   )}
 
@@ -1785,7 +1844,8 @@ export default function Home() {
         currentDec={target.dec}
         currentName={target.n}
         onSelectResult={handleSelectConeResult}
-        onResultsChange={(results, rad) => { setConeResults(results); setConeRadius(rad); }}
+        onResultsChange={handleResultsChange}
+        onHuntArea={handleHuntArea}
         initialRadius={coneRadius}
         initialFilters={coneFilters}
       />

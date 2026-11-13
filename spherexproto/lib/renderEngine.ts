@@ -22,6 +22,7 @@ export interface RenderEngineOptions {
   coneResults?: ConeResult[];
   coneRadiusArcmin?: number;
   isConeSearchOpen?: boolean;
+  showConeOverlays?: boolean;
 
   // Fase 3: Features estrella
   curtainEnabled?: boolean;
@@ -177,6 +178,7 @@ export function renderScientificFrame(opts: RenderEngineOptions): {
     coneResults = [],
     coneRadiusArcmin = 10,
     isConeSearchOpen = false,
+    showConeOverlays = true,
     curtainEnabled = false,
     curtainSplit = 0.5,
     autoHunterEnabled = false,
@@ -403,7 +405,7 @@ export function renderScientificFrame(opts: RenderEngineOptions): {
   }
 
   // D. Search Radius Circle from Cone Search
-  if (coneRadiusArcmin > 0 && (coneResults.length > 0 || isConeSearchOpen)) {
+  if (showConeOverlays && coneRadiusArcmin > 0 && (coneResults.length > 0 || isConeSearchOpen)) {
     const pxRadius = (coneRadiusArcmin / fovArcmin) * canvasWidth;
     if (pxRadius > 15) {
       g.strokeStyle = 'rgba(79, 209, 165, 0.45)';
@@ -424,7 +426,7 @@ export function renderScientificFrame(opts: RenderEngineOptions): {
   }
 
   // E. Cone Search Numbered Result Markers
-  if (coneResults.length > 0) {
+  if (showConeOverlays && coneResults.length > 0) {
     const cosDec = Math.cos((wcs.crval[1] * Math.PI) / 180.0);
     const safeCosDec = Math.abs(cosDec) > 0.05 ? cosDec : 0.05;
     const pxPerArcmin = canvasWidth / fovArcmin;

@@ -84,6 +84,27 @@ export const DICTIONARY = {
     // FITS Details
     fitsSummary: 'Cabecera FITS y Calibración WCS',
     provenanceFooter: 'Modelo astrofísico verificado: 24 fotogramas calculados con calibración WCS TAN, matriz Float32Array y catálogo Gaia DR3 / WISE2020.',
+
+    // Cone Search & Neighborhood Exploration
+    coneTitle: 'Explorar alrededores',
+    coneSubtitle: 'Búsqueda por radio en el vecindario celeste',
+    coneCenterLabel: 'Centro de búsqueda',
+    coneBackToCurrent: 'Volver al objeto actual',
+    coneSurpriseMe: 'Sorpréndeme',
+    coneRadiusLabel: 'Distancia desde el centro',
+    coneFilterTitle: 'Filtrar por tipo de objeto:',
+    coneSortLabel: 'Ordenar por:',
+    coneSortInterest: 'Interés científico',
+    coneSortDistance: 'Distancia al centro',
+    coneHuntArea: 'Cazar movimiento en esta zona',
+    coneShowChart: 'Ver carta celeste',
+    coneHideChart: 'Ocultar carta',
+    coneEmptyTitle: 'Sin resultados en este radio',
+    coneEmptySuggestion: 'Sube el radio a',
+    coneErrorTitle: 'Error al consultar el catálogo celeste',
+    coneRetry: 'Reintentar búsqueda',
+    coneTechnicalDetails: 'Datos técnicos',
+    coneMarkersToggle: 'Marcadores de cono',
   },
   en: {
     // Historical motto
@@ -168,6 +189,27 @@ export const DICTIONARY = {
     // FITS Details
     fitsSummary: 'FITS Header & WCS Calibration',
     provenanceFooter: 'Verified astrophysical pipeline: 24 frames computed with TAN WCS projection, Float32Array pixel buffers, and Gaia DR3 / WISE2020 catalogs.',
+
+    // Cone Search & Neighborhood Exploration
+    coneTitle: 'Explore Neighborhood',
+    coneSubtitle: 'Radial cone search in sky neighborhood',
+    coneCenterLabel: 'Search Center',
+    coneBackToCurrent: 'Return to current target',
+    coneSurpriseMe: 'Surprise me',
+    coneRadiusLabel: 'Distance from center',
+    coneFilterTitle: 'Filter by object type:',
+    coneSortLabel: 'Sort by:',
+    coneSortInterest: 'Scientific interest',
+    coneSortDistance: 'Distance from center',
+    coneHuntArea: 'Hunt motion in this region',
+    coneShowChart: 'Show sky chart',
+    coneHideChart: 'Hide sky chart',
+    coneEmptyTitle: 'No objects found in this radius',
+    coneEmptySuggestion: 'Increase radius to',
+    coneErrorTitle: 'Error querying astronomical catalog',
+    coneRetry: 'Retry search',
+    coneTechnicalDetails: 'Technical data',
+    coneMarkersToggle: 'Cone search markers',
   },
 };
 
