@@ -18,76 +18,166 @@ export function RetoModal({ isOpen, onClose, target, found, score }: RetoModalPr
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-pop">
-      <div className="relative w-full max-w-md bg-[#141733] border border-[#272a4f] rounded-3xl p-6 shadow-2xl text-[#f1eefb]">
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="reto-title"
+      style={{
+        position: 'fixed',
+        inset: 0,
+        zIndex: 60,
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        padding: '1rem',
+        backgroundColor: 'rgba(7, 9, 15, 0.82)',
+        backdropFilter: 'blur(8px)',
+      }}
+      className="animate-pop"
+    >
+      <div
+        style={{
+          position: 'relative',
+          width: '100%',
+          maxWidth: 440,
+          backgroundColor: 'var(--panel)',
+          border: '1px solid var(--line)',
+          borderRadius: 16,
+          padding: '1.5rem',
+          boxShadow: '0 20px 40px rgba(0,0,0,0.6)',
+          color: 'var(--ink)',
+        }}
+      >
         {/* Header */}
-        <div className="flex items-center justify-between pb-3 border-b border-[#272a4f]">
-          <div className="flex items-center gap-2">
-            <span className="text-2xl">🕵️</span>
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            paddingBottom: '0.75rem',
+            borderBottom: '1px solid var(--line)',
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <div
+              style={{
+                width: 32,
+                height: 32,
+                borderRadius: '50%',
+                background: 'rgba(212, 79, 110, 0.2)',
+                color: 'var(--acc-hi)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+              }}
+            >
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                <circle cx="12" cy="12" r="10" /><circle cx="12" cy="12" r="3" />
+              </svg>
+            </div>
             <div>
-              <h3 className="text-lg font-extrabold text-white">Reto Detective</h3>
-              <p className="text-xs text-[#9a95b8]">Modo educativo de búsqueda celeste</p>
+              <h3
+                id="reto-title"
+                style={{
+                  fontFamily: 'var(--font-display)',
+                  fontSize: '1.2rem',
+                  fontWeight: 400,
+                  margin: 0,
+                  color: 'var(--ink)',
+                }}
+              >
+                Reto Detective Celeste
+              </h3>
+              <p style={{ margin: 0, fontSize: 'var(--text-data)', color: 'var(--mute)' }}>
+                Verificación de predicción por movimiento propio
+              </p>
             </div>
           </div>
           <button
             onClick={onClose}
-            className="w-8 h-8 rounded-full bg-[#0a0d1f] text-[#9a95b8] hover:text-white flex items-center justify-center font-bold"
+            className="btn-icon"
+            aria-label="Cerrar modal"
           >
             ✕
           </button>
         </div>
 
         {/* Content */}
-        <div className="my-4 flex flex-col gap-3">
-          <div className="p-3.5 rounded-2xl bg-[#0a0d1f] border border-[#272a4f]">
-            <span className="text-xs font-mono font-bold text-[#ff5a7e] uppercase tracking-wider block mb-1">
+        <div style={{ margin: '1rem 0', display: 'flex', flexDirection: 'column', gap: 12 }}>
+          <div
+            style={{
+              padding: '12px 14px',
+              borderRadius: 10,
+              backgroundColor: 'var(--panel-raised)',
+              border: '1px solid var(--line)',
+            }}
+          >
+            <span
+              style={{
+                fontSize: 'var(--text-data)',
+                fontWeight: 700,
+                color: 'var(--acc-hi)',
+                letterSpacing: '0.05em',
+                textTransform: 'uppercase',
+                display: 'block',
+                marginBottom: 4,
+              }}
+            >
               Tu Misión:
             </span>
-            <p className="text-sm font-semibold text-white leading-snug">
-              Localiza a <strong className="text-[#ff5a7e]">{target.n}</strong> desplazándose entre las 34 estrellas lejanas.
+            <p style={{ fontSize: 'var(--text-body)', fontWeight: 600, color: 'var(--ink)', margin: 0, lineHeight: 1.4 }}>
+              Localiza a <span style={{ color: 'var(--acc-hi)' }}>{target.n}</span> haciendo clic directamente sobre él en el visor.
             </p>
           </div>
 
-          <div className="text-xs text-[#9a95b8] leading-relaxed space-y-1.5">
-            <div className="flex items-start gap-2">
-              <span className="text-[#ff5a7e] font-bold">1.</span>
-              <span>Fíjate en las estrellas: la gran mayoría permanecen estáticas.</span>
+          <div style={{ fontSize: 'var(--text-caption)', color: 'var(--mute)', lineHeight: 1.5, display: 'flex', flexDirection: 'column', gap: 6 }}>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <span style={{ color: 'var(--acc)', fontWeight: 700 }}>1.</span>
+              <span>Usa el deslizador de tiempo o la tecla <b>B</b> (parpadeo) para detectar el salto de posición.</span>
             </div>
-            <div className="flex items-start gap-2">
-              <span className="text-[#ff5a7e] font-bold">2.</span>
-              <span>Usa el control de tiempo o activa &quot;Resaltar lo que cambia&quot; para comprobar su desplazamiento.</span>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <span style={{ color: 'var(--acc)', fontWeight: 700 }}>2.</span>
+              <span>Compara con la retícula predicha por las mediciones de Gaia DR3.</span>
             </div>
-            <div className="flex items-start gap-2">
-              <span className="text-[#ff5a7e] font-bold">3.</span>
-              <span>Haz clic directamente sobre la estrella en movimiento dentro del visor para confirmar tu hallazgo.</span>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <span style={{ color: 'var(--acc)', fontWeight: 700 }}>3.</span>
+              <span>Haz clic sobre el astro móvil para medir la precisión angular del hallazgo.</span>
             </div>
           </div>
 
           {/* Status Badge */}
-          <div className="mt-2 p-3 rounded-2xl border text-center transition-all bg-[#0a0d1f] border-[#272a4f]">
+          <div
+            style={{
+              padding: '12px',
+              borderRadius: 10,
+              border: `1px solid ${found ? '#4fd1a5' : 'var(--line)'}`,
+              backgroundColor: found ? 'rgba(79, 209, 165, 0.1)' : 'var(--panel-raised)',
+              textAlign: 'center',
+            }}
+          >
             {found ? (
-              <div className="text-emerald-400 font-bold flex items-center justify-center gap-2">
-                <span className="text-xl">✅</span>
-                <span>¡Objetivo confirmado! Has ganado +100 puntos (Total: {score} pts)</span>
+              <div style={{ color: '#4fd1a5', fontWeight: 700, fontSize: 'var(--text-caption)' }}>
+                <div style={{ fontSize: '1.2rem', marginBottom: 2 }}>✓ ¡Objetivo Confirmado!</div>
+                <div>Error angular menor a 0,8″. Ganaste +100 puntos (Total: {score} pts)</div>
               </div>
             ) : (
-              <div className="text-[#ff5a7e] text-xs font-mono font-bold animate-pulse">
-                🔍 Esperando que hagas clic sobre el objeto en el visor...
+              <div style={{ color: 'var(--acc-hi)', fontSize: 'var(--text-caption)', fontWeight: 600 }}>
+                Haz clic sobre el objeto en movimiento en el visor para confirmar…
               </div>
             )}
           </div>
         </div>
 
-        <div className="flex justify-end gap-2">
+        <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
           <button
             onClick={onClose}
-            className="px-5 py-2.5 rounded-full bg-[#ff5a7e] hover:bg-[#e8365d] text-white text-xs font-bold transition-colors w-full"
+            className="btn-primary"
+            style={{ width: '100%' }}
           >
-            {found ? '¡Genial! Seguir explorando' : '¡Entendido! Buscar en el visor'}
+            {found ? 'Seguir explorando' : 'Entendido, volver al visor'}
           </button>
         </div>
       </div>
     </div>
   );
 }
-

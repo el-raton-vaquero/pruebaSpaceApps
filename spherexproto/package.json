@@ -7,7 +7,8 @@
     "dev": "node build-css.js && next dev",
     "build": "node build-css.js && next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "ingest": "node scripts/ingest.js"
   },
   "dependencies": {
     "next": "16.4.6",

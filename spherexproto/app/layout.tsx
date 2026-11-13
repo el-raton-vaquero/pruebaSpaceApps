@@ -4,7 +4,8 @@ import "./globals.css";
 
 export const metadata: Metadata = {
   title: "SPHEREx Time Machine | Ver el Cielo Moverse",
-  description: "Una web donde escribes unas coordenadas o el nombre de una estrella y ves el cielo infrarrojo moverse con los objetos que cambian resaltados.",
+  description:
+    "Escribe unas coordenadas o el nombre de una estrella y mira el cielo infrarrojo moverse. Descubre asteroides, enanas marrones y estrellas variables con el telescopio espacial SPHEREx de la NASA.",
 };
 
 export default function RootLayout({
@@ -13,15 +14,28 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="es" className="dark h-full antialiased">
+    <html lang="es" className="h-full">
       <head>
+        {/* Preconnect */}
         <link rel="preconnect" href="https://fonts.googleapis.com" />
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
+        {/* Fuente display: DM Serif Display (serif) */}
+        {/* Fuente body: Inter (humanista sans) */}
         <link
-          href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:wght@400;600;800&display=swap"
+          href="https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=Inter:wght@400;500;600;700&display=swap"
           rel="stylesheet"
         />
       </head>
-      <body className="min-h-full flex flex-col bg-[#0b0d1c] text-[#f1eefb] selection:bg-[#ff5a7e]/30 selection:text-white">
+      <body
+        style={{
+          minHeight: "100%",
+          display: "flex",
+          flexDirection: "column",
+          backgroundColor: "var(--bg)",
+          color: "var(--ink)",
+          margin: 0,
+        }}
+      >
         {children}
       </body>
     </html>
