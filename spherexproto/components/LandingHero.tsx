@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useRef, useEffect, useState } from 'react';
+import { Locale, DICTIONARY } from '../lib/i18n';
 
 interface AstronomicalObject {
   id: string;
@@ -21,77 +22,37 @@ interface LandingHeroProps {
   onOpenConeSearch?: () => void;
   isSearching: boolean;
   searchMessage: string;
+  locale?: Locale;
 }
 
-/** Dibuja una estrella PSF realista: núcleo puntual + espinas de difracción + halo. */
-function drawPsfStar(
-  g: CanvasRenderingContext2D,
-  x: number,
-  y: number,
-  brightness: number,  // 0–1
-  color: string = '#c8d4ff',
-  spikes: boolean = true
-) {
-  const alpha = Math.min(1, brightness);
-
-  // 1. Halo exterior (gradiente con caída rápida)
-  const haloR = 10 + brightness * 10;
-  const haloGr = g.createRadialGradient(x, y, 0, x, y, haloR);
-  haloGr.addColorStop(0, `rgba(200,210,255,${0.18 * alpha})`);
-  haloGr.addColorStop(0.4, `rgba(200,210,255,${0.07 * alpha})`);
-  haloGr.addColorStop(1, 'rgba(200,210,255,0)');
-  g.fillStyle = haloGr;
-  g.beginPath();
-  g.arc(x, y, haloR, 0, 2 * Math.PI);
-  g.fill();
-
-  // 2. Espinas de difracción (tipo telescopio espacial)
-  if (spikes && brightness > 0.35) {
-    const spikeLen = 8 + brightness * 14;
-    g.strokeStyle = `rgba(230,238,255,${0.22 * alpha})`;
-    g.lineWidth = 0.8;
-    g.beginPath();
-    g.moveTo(x - spikeLen, y); g.lineTo(x + spikeLen, y);
-    g.moveTo(x, y - spikeLen); g.lineTo(x, y + spikeLen);
-    g.stroke();
-    // Espinas diagonales más tenues
-    const d = spikeLen * 0.55;
-    g.strokeStyle = `rgba(230,238,255,${0.1 * alpha})`;
-    g.beginPath();
-    g.moveTo(x - d, y - d); g.lineTo(x + d, y + d);
-    g.moveTo(x + d, y - d); g.lineTo(x - d, y + d);
-    g.stroke();
-  }
-
-  // 3. Núcleo puntual (1–2px)
-  g.fillStyle = `rgba(255,255,255,${alpha})`;
-  g.beginPath();
-  g.arc(x, y, brightness > 0.6 ? 1.5 : 1, 0, 2 * Math.PI);
-  g.fill();
-}
-
-/** Mini canvas de 52×52 que muestra 2 fotogramas alternando (epoch 1 y epoch 4). */
+/** Mini canvas de 52×52 que se anima en un bucle de 2 fotogramas SOLO al pasar el ratón */
 function MiniCanvas({
   objKey,
   pm,
   type,
+  isHovered,
 }: {
   objKey: string;
   pm: [number, number];
   type: 'mov' | 'pair' | 'var';
+  isHovered: boolean;
 }) {
-  const ref = useRef<HTMLCanvasElement | null>(null);
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
 
   useEffect(() => {
-    const canvas = ref.current;
+    const canvas = canvasRef.current;
     if (!canvas) return;
-    const g = canvas.getContext('2d');
-    if (!g) return;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
 
     const W = 52;
     const H = 52;
+    const isDark =
+      !document.documentElement.classList.contains('theme-light') &&
+      document.documentElement.getAttribute('data-theme') !== 'light' &&
+      !window.matchMedia('(prefers-color-scheme: light)').matches;
 
-    // Semilla estable por objeto
+    // Semilla pseudo-aleatoria fija y determinista para las estrellas de fondo
     const seed = objKey.charCodeAt(0) * 31 + objKey.length * 17;
     const rng = (s: number) => {
       let x = s;
@@ -101,29 +62,25 @@ function MiniCanvas({
       };
     };
     const r = rng(seed);
-    const stars = Array.from({ length: 8 }, () => ({
-      x: r() * W,
-      y: r() * H,
-      b: 0.25 + r() * 0.65,
+    const bgStars = Array.from({ length: 7 }, () => ({
+      x: r() * (W - 8) + 4,
+      y: r() * (H - 8) + 4,
+      b: 0.25 + r() * 0.45,
     }));
 
-    let frame = 0;
-    let animId: number;
-    let lastSwitch = performance.now();
-    const INTERVAL = 650; // ms entre fotogramas
+    const renderFrame = (f: number) => {
+      // Fondo de placa fotográfica (sin gradientes artificiales)
+      ctx.fillStyle = isDark ? '#0c0d12' : '#f7f6f3';
+      ctx.fillRect(0, 0, W, H);
 
-    const render = (now: number) => {
-      if (now - lastSwitch > INTERVAL) {
-        frame = 1 - frame;
-        lastSwitch = now;
-      }
-
-      g.fillStyle = '#07090f';
-      g.fillRect(0, 0, W, H);
-
-      // Estrellas de fondo fijas
-      stars.forEach((s) => {
-        drawPsfStar(g, s.x, s.y, s.b * 0.7, '#c8d4ff', false);
+      // Estrellas de fondo fijas (puntos discretos de 1px)
+      bgStars.forEach((s) => {
+        ctx.fillStyle = isDark
+          ? `rgba(210, 215, 230, ${s.b * 0.6})`
+          : `rgba(40, 42, 55, ${s.b * 0.55})`;
+        ctx.beginPath();
+        ctx.arc(s.x, s.y, 0.8, 0, Math.PI * 2);
+        ctx.fill();
       });
 
       // Objeto central
@@ -132,66 +89,174 @@ function MiniCanvas({
       const scale = 7;
 
       if (type === 'var') {
-        const brightness = frame === 0 ? 0.9 : 0.35;
-        drawPsfStar(g, cx, cy, brightness, '#ff9a7c', true);
+        // Objeto variable: cambia de brillo entre las dos épocas
+        const brightness = f === 0 ? 0.95 : 0.35;
+        ctx.fillStyle = isDark
+          ? `rgba(255, 180, 150, ${brightness})`
+          : `rgba(217, 78, 31, ${brightness})`;
+        ctx.beginPath();
+        ctx.arc(cx, cy, f === 0 ? 2.2 : 1.2, 0, Math.PI * 2);
+        ctx.fill();
       } else {
-        const dx = pm[0] * scale * (frame === 0 ? -0.5 : 0.5);
-        const dy = pm[1] * scale * (frame === 0 ? -0.5 : 0.5);
+        // Objeto en movimiento o par binario
+        const dx = pm[0] * scale * (f === 0 ? -0.5 : 0.5);
+        const dy = pm[1] * scale * (f === 0 ? -0.5 : 0.5);
 
         if (type === 'pair') {
-          drawPsfStar(g, cx + dx - 4, cy + dy - 2, 0.85, '#7ec8ff', true);
-          drawPsfStar(g, cx + dx + 4, cy + dy + 2, 0.75, '#7ec8ff', true);
+          ctx.fillStyle = isDark ? '#ff6b35' : '#d94e1f';
+          ctx.beginPath();
+          ctx.arc(cx + dx - 4, cy + dy - 2, 1.4, 0, Math.PI * 2);
+          ctx.arc(cx + dx + 4, cy + dy + 2, 1.2, 0, Math.PI * 2);
+          ctx.fill();
         } else {
-          drawPsfStar(g, cx + dx, cy + dy, 0.9, '#ffd34f', true);
+          ctx.fillStyle = isDark ? '#ff6b35' : '#d94e1f';
+          ctx.beginPath();
+          ctx.arc(cx + dx, cy + dy, 1.8, 0, Math.PI * 2);
+          ctx.fill();
         }
       }
-
-      animId = requestAnimationFrame(render);
     };
 
-    animId = requestAnimationFrame(render);
+    // Renderiza el fotograma 0 inmediatamente
+    renderFrame(0);
+
+    const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    if (!isHovered || prefersReducedMotion) {
+      return;
+    }
+
+    // Bucle de alternancia de 2 fotogramas SOLO durante el hover
+    let frame = 0;
+    let lastSwitch = performance.now();
+    let animId: number;
+    const INTERVAL = 500; // ms entre fotogramas
+
+    const loop = (now: number) => {
+      if (now - lastSwitch >= INTERVAL) {
+        frame = 1 - frame;
+        lastSwitch = now;
+        renderFrame(frame);
+      }
+      animId = requestAnimationFrame(loop);
+    };
+
+    animId = requestAnimationFrame(loop);
     return () => cancelAnimationFrame(animId);
-  }, [objKey, pm, type]);
+  }, [objKey, pm, type, isHovered]);
 
   return (
     <canvas
-      ref={ref}
+      ref={canvasRef}
       width={52}
       height={52}
       className="sky-canvas"
       style={{
         width: 52,
         height: 52,
-        borderRadius: 6,
         display: 'block',
         imageRendering: 'pixelated',
-        background: '#07090f',
       }}
       aria-hidden="true"
     />
   );
 }
 
-/** Convierte tipo a etiqueta legible sin jerga */
-function typeLabel(type: 'mov' | 'pair' | 'var'): string {
-  if (type === 'var') return 'Cambia de brillo';
-  if (type === 'pair') return 'Par en mov.';
-  return 'En movimiento';
-}
+/** Fila individual del índice para gestionar el estado de hover de su miniatura */
+function ObjectRow({
+  objKey,
+  obj,
+  onSelect,
+  t,
+}: {
+  objKey: string;
+  obj: AstronomicalObject;
+  onSelect: (k: string) => void;
+  t: any;
+}) {
+  const [isHovered, setIsHovered] = useState(false);
 
-/** Valor de movimiento desde los facts del objeto */
-function movValue(o: AstronomicalObject): string {
-  const f = o.f.find(([k]) => k === 'Se mueve' || k === 'Movimiento' || k === 'Ciclo' || k === 'Cambia');
-  return f ? f[1] : '';
-}
+  // Extraer el valor de velocidad y verificar si es un objeto en movimiento
+  const f = obj.f.find(
+    ([k]) => k === 'Se mueve' || k === 'Movimiento' || k === 'Ciclo' || k === 'Cambia'
+  );
+  const mv = f ? f[1] : '';
+  const isMoving = obj.type === 'mov' || obj.type === 'pair';
 
-/** ¿El objeto es rápido? (> 5″/año) */
-function isFast(o: AstronomicalObject): boolean {
-  const v = movValue(o);
-  const m = v.match(/([\d,.]+)/);
-  if (!m) return false;
-  const n = parseFloat(m[1].replace(',', '.'));
-  return n >= 5;
+  // Solo tres valores en texto plano: 'se mueve', 'cambia de brillo', 'pareja'
+  const typeText =
+    obj.type === 'mov'
+      ? (t.typeMov || 'se mueve')
+      : obj.type === 'var'
+        ? (t.typeVar || 'cambia de brillo')
+        : (t.typePair || 'pareja');
+
+  return (
+    <button
+      onClick={() => onSelect(objKey)}
+      onMouseEnter={() => setIsHovered(true)}
+      onMouseLeave={() => setIsHovered(false)}
+      className="obj-row"
+      style={{
+        width: '100%',
+        textAlign: 'left',
+        background: 'transparent',
+        border: 'none',
+        borderBottom: '1px solid var(--line)',
+        fontFamily: 'var(--font-body)',
+        color: 'var(--ink)',
+      }}
+      aria-label={`Ver animación de ${obj.n}: ${obj.tag}`}
+    >
+      {/* Miniatura pixelada animada SOLO al pasar el ratón */}
+      <div className="obj-mini-canvas">
+        <MiniCanvas objKey={objKey} pm={obj.pm} type={obj.type} isHovered={isHovered} />
+      </div>
+
+      {/* Nombre, descripción y etiqueta de texto plano */}
+      <div style={{ minWidth: 0 }}>
+        <div
+          style={{
+            fontFamily: 'var(--font-display)',
+            fontSize: '1rem',
+            fontWeight: 400,
+            lineHeight: 1.25,
+            marginBottom: 2,
+            whiteSpace: 'nowrap',
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+          }}
+        >
+          {obj.n}
+        </div>
+        <div
+          style={{
+            color: 'var(--mute)',
+            fontSize: 'var(--text-caption)',
+            lineHeight: 1.3,
+            whiteSpace: 'nowrap',
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            marginBottom: 3,
+          }}
+        >
+          {obj.tag}
+        </div>
+        {/* Etiqueta de texto plano: sin caja de color ni bordes */}
+        <span className="type-tag">{typeText}</span>
+      </div>
+
+      {/* Velocidad: color de alerta SOLO si se mueve; si no, color de texto atenuado */}
+      <div>
+        {isMoving && mv ? (
+          <span className="pm-value fast tabular">{mv}</span>
+        ) : (
+          <span className="pm-value tabular" style={{ color: 'var(--mute)' }}>
+            —
+          </span>
+        )}
+      </div>
+    </button>
+  );
 }
 
 export function LandingHero({
@@ -201,94 +266,178 @@ export function LandingHero({
   onOpenConeSearch,
   isSearching,
   searchMessage,
+  locale = 'es',
 }: LandingHeroProps) {
   const bgCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const [searchInput, setSearchInput] = useState('');
+  const t = DICTIONARY[locale] || DICTIONARY.es;
 
-  /* ---- Hero canvas: fondo de cielo animado ---- */
+  /* ---- Fondo de cielo: bucle sutil y nítido de fotogramas (comparador de parpadeo) ---- */
   useEffect(() => {
     const canvas = bgCanvasRef.current;
     if (!canvas) return;
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
-    // Detectar prefers-reduced-motion
     const noMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
+    // Generador pseudo-aleatorio determinista para distribución estelar realista
+    const rng = (s: number) => {
+      let x = s;
+      return () => {
+        x = (x * 1664525 + 1013904223) & 0xffffffff;
+        return (x >>> 0) / 0xffffffff;
+      };
+    };
+    const r = rng(19300218); // Fecha histórica del descubrimiento de Plutón (18 Feb 1930)
+
+    // Catálogo estelar de fondo (210 estrellas con magnitudes y perfiles PSF auténticos)
+    const stars = Array.from({ length: 210 }, (_, i) => {
+      const isBright = i < 12;
+      const isMedium = i >= 12 && i < 55;
+      return {
+        xNorm: r(),
+        yNorm: r(),
+        radius: isBright ? 2.4 + r() * 1.4 : isMedium ? 1.4 + r() * 0.7 : 0.8 + r() * 0.45,
+        flux: isBright ? 0.88 + r() * 0.12 : isMedium ? 0.60 + r() * 0.35 : 0.30 + r() * 0.45,
+        colorDark: isBright
+          ? r() > 0.5 ? '#ffd4a3' : '#c8d8ff'
+          : isMedium ? '#f0f3fa' : '#cad2e0',
+        colorLight: isBright ? '#10121a' : isMedium ? '#2e303d' : '#525463',
+        hasHalo: isBright,
+      };
+    });
+
+    // Objetos en movimiento del comparador de parpadeo (detrás del titular)
+    // Objeto principal: análogo de WISE 0855 / Plutón con alto desplazamiento
+    const target1 = {
+      x0Norm: 0.38,
+      y0Norm: 0.22,
+      dx: 24,
+      dy: -8,
+    };
+    // Objeto secundario: análogo de asteroide tenue cruzando en el cuadrante superior derecho
+    const target2 = {
+      x0Norm: 0.72,
+      y0Norm: 0.17,
+      dx: -16,
+      dy: 10,
+    };
+
+    let epoch = 0;
+    let lastSwitch = performance.now();
     let animId: number;
-    let t = 0;
-
-    // Semilla fija para el fondo
-    const stars = Array.from({ length: 55 }, (_, i) => ({
-      x: ((i * 137.508) % 1) * 1200,
-      y: ((i * 269.311) % 1) * 700,
-      b: 0.18 + ((i * 31) % 100) / 200,
-    }));
-
-    // Objeto "estrella en movimiento" — simula WISE 0855
-    const obj = { x0: 0.22, y0: 0.42, speed: 0.0028, amp: 30 };
 
     const resize = () => {
-      canvas.width = canvas.parentElement?.clientWidth || 1200;
-      canvas.height = canvas.parentElement?.clientHeight || 600;
+      if (!canvas.parentElement) return;
+      canvas.width = canvas.parentElement.clientWidth;
+      canvas.height = canvas.parentElement.clientHeight;
     };
     resize();
 
-    const render = () => {
+    const render = (now: number) => {
       const W = canvas.width;
       const H = canvas.height;
+      const isDark =
+        !document.documentElement.classList.contains('theme-light') &&
+        document.documentElement.getAttribute('data-theme') !== 'light' &&
+        !window.matchMedia('(prefers-color-scheme: light)').matches;
 
-      // Fondo
-      ctx.fillStyle = '#07090f';
+      // 1. Fondo con gradiente cósmico / placa de observatorio (evita negro plano artificial)
+      if (isDark) {
+        const bgGrad = ctx.createRadialGradient(W * 0.5, H * 0.3, 40, W * 0.5, H * 0.5, W * 0.75);
+        bgGrad.addColorStop(0, '#131520');
+        bgGrad.addColorStop(1, '#090a0e');
+        ctx.fillStyle = bgGrad;
+      } else {
+        const bgGrad = ctx.createRadialGradient(W * 0.5, H * 0.3, 40, W * 0.5, H * 0.5, W * 0.75);
+        bgGrad.addColorStop(0, '#f6f5f1');
+        bgGrad.addColorStop(1, '#eae7e0');
+        ctx.fillStyle = bgGrad;
+      }
       ctx.fillRect(0, 0, W, H);
 
-      // Viñeta
-      const vign = ctx.createRadialGradient(W / 2, H / 2, H * 0.1, W / 2, H / 2, H * 0.9);
-      vign.addColorStop(0, 'rgba(0,0,0,0)');
-      vign.addColorStop(1, 'rgba(0,0,0,0.65)');
-      ctx.fillStyle = vign;
-      ctx.fillRect(0, 0, W, H);
-
-      // Estrellas PSF
+      // 2. Estrellas de campo fijas con PSF y brillo notable
       stars.forEach((s) => {
-        const sx = (s.x / 1200) * W;
-        const sy = (s.y / 700) * H;
-        drawPsfStar(ctx, sx, sy, s.b, '#c8d4ff', s.b > 0.3);
+        const sx = s.xNorm * W;
+        const sy = s.yNorm * H;
+
+        // Halo suave solo para las pocas estrellas más brillantes
+        if (s.hasHalo) {
+          const haloR = s.radius * 3.8;
+          const halo = ctx.createRadialGradient(sx, sy, 0, sx, sy, haloR);
+          if (isDark) {
+            halo.addColorStop(0, 'rgba(200, 220, 255, 0.22)');
+            halo.addColorStop(0.5, 'rgba(200, 220, 255, 0.05)');
+            halo.addColorStop(1, 'rgba(200, 220, 255, 0)');
+          } else {
+            halo.addColorStop(0, 'rgba(20, 22, 35, 0.18)');
+            halo.addColorStop(0.5, 'rgba(20, 22, 35, 0.04)');
+            halo.addColorStop(1, 'rgba(20, 22, 35, 0)');
+          }
+          ctx.fillStyle = halo;
+          ctx.beginPath();
+          ctx.arc(sx, sy, haloR, 0, Math.PI * 2);
+          ctx.fill();
+        }
+
+        // Núcleo estelar
+        ctx.fillStyle = isDark ? s.colorDark : s.colorLight;
+        ctx.globalAlpha = s.flux;
+        ctx.beginPath();
+        ctx.arc(sx, sy, s.radius, 0, Math.PI * 2);
+        ctx.fill();
       });
+      ctx.globalAlpha = 1.0;
 
+      // 3. Alternancia periódica de fotogramas (cadencia de 950 ms del comparador)
       if (!noMotion) {
-        // Objeto en movimiento (recorre el centro de la pantalla)
-        t = (t + obj.speed) % 1.0;
-        const mx = W * obj.x0 + t * W * 0.56;
-        const my = H * obj.y0 + Math.sin(t * Math.PI) * obj.amp;
-
-        // Rastro tenue
-        ctx.strokeStyle = 'rgba(212,79,110,0.18)';
-        ctx.lineWidth = 1;
-        ctx.setLineDash([3, 7]);
-        ctx.beginPath();
-        ctx.moveTo(W * obj.x0, H * obj.y0);
-        ctx.lineTo(W * (obj.x0 + 0.56), H * obj.y0);
-        ctx.stroke();
-        ctx.setLineDash([]);
-
-        // Punto móvil con PSF color naranja/amarillo (infrarrojo)
-        drawPsfStar(ctx, mx, my, 0.95, '#ffd34f', true);
-
-        // Círculo de señalización (tenue)
-        ctx.strokeStyle = 'rgba(255,211,79,0.35)';
-        ctx.lineWidth = 1.5;
-        ctx.beginPath();
-        ctx.arc(mx, my, 14, 0, 2 * Math.PI);
-        ctx.stroke();
+        if (now - lastSwitch > 950) {
+          epoch = 1 - epoch;
+          lastSwitch = now;
+        }
       }
 
-      animId = requestAnimationFrame(render);
+      // 4. Objetos móviles que alternan de posición entre Época 1 y Época 2
+      // Objeto 1: análogo de WISE 0855 (naranja astrométrico detrás del titular)
+      const ox1 = W * target1.x0Norm + (epoch === 1 ? target1.dx : 0);
+      const oy1 = H * target1.y0Norm + (epoch === 1 ? target1.dy : 0);
+
+      // Halo tenue del objetivo móvil
+      const tHalo1 = ctx.createRadialGradient(ox1, oy1, 0, ox1, oy1, 14);
+      tHalo1.addColorStop(0, isDark ? 'rgba(255, 107, 53, 0.45)' : 'rgba(217, 78, 31, 0.38)');
+      tHalo1.addColorStop(1, isDark ? 'rgba(255, 107, 53, 0)' : 'rgba(217, 78, 31, 0)');
+      ctx.fillStyle = tHalo1;
+      ctx.beginPath();
+      ctx.arc(ox1, oy1, 14, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Núcleo del objetivo móvil
+      ctx.fillStyle = isDark ? '#ff6b35' : '#d94e1f';
+      ctx.beginPath();
+      ctx.arc(ox1, oy1, 2.4, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Objeto 2: asteroide secundario tenue
+      const ox2 = W * target2.x0Norm + (epoch === 1 ? target2.dx : 0);
+      const oy2 = H * target2.y0Norm + (epoch === 1 ? target2.dy : 0);
+
+      ctx.fillStyle = isDark ? 'rgba(255, 211, 79, 0.85)' : 'rgba(180, 110, 0, 0.85)';
+      ctx.beginPath();
+      ctx.arc(ox2, oy2, 1.6, 0, Math.PI * 2);
+      ctx.fill();
+
+      if (!noMotion) {
+        animId = requestAnimationFrame(render);
+      }
     };
 
     animId = requestAnimationFrame(render);
 
-    const obs = new ResizeObserver(resize);
+    const obs = new ResizeObserver(() => {
+      resize();
+      render(performance.now());
+    });
     if (canvas.parentElement) obs.observe(canvas.parentElement);
 
     return () => {
@@ -314,11 +463,13 @@ export function LandingHero({
         flexDirection: 'column',
         alignItems: 'center',
         justifyContent: 'center',
-        padding: '3rem 1rem 2rem',
+        padding: '2.5rem 1rem 2rem',
+        boxSizing: 'border-box',
         overflow: 'hidden',
+        width: '100%',
       }}
     >
-      {/* Cielo animado de fondo */}
+      {/* Fondo de cielo astronómico real/simulado */}
       <div
         style={{
           position: 'absolute',
@@ -333,70 +484,71 @@ export function LandingHero({
         />
       </div>
 
-      {/* Contenido principal */}
+      {/* Contenedor central */}
       <div
         style={{
           position: 'relative',
           zIndex: 10,
           width: '100%',
           maxWidth: 680,
+          boxSizing: 'border-box',
         }}
       >
-        {/* Referencia histórica (texto de apoyo — no "eyebrow") */}
-        <p
-          style={{
-            fontFamily: 'var(--font-display)',
-            fontStyle: 'italic',
-            color: 'var(--mute)',
-            fontSize: 'var(--text-caption)',
-            marginBottom: '0.5rem',
-            textAlign: 'center',
-          }}
-        >
-          Así se descubrió Plutón: alternando dos fotos del mismo cielo.
-        </p>
-
-        {/* Headline: solo blanco, sin span de color */}
+        {/* Titular serif protagonista */}
         <h1
           style={{
             fontFamily: 'var(--font-display)',
             fontSize: 'var(--text-display)',
             color: 'var(--ink)',
             lineHeight: 1.12,
-            margin: '0 0 0.75rem',
+            margin: '0 0 0.5rem',
             textAlign: 'center',
             fontWeight: 400,
+            overflowWrap: 'break-word',
           }}
         >
-          El cielo no está quieto.
+          {t.heroTitle1 || 'El cielo no está quieto.'}
           <br />
-          Mira cómo se mueve.
+          {t.heroTitle2 || 'Mira cómo se mueve.'}
         </h1>
 
-        {/* Apoyo */}
+        {/* Pie de figura pequeño bajo el titular */}
+        <p
+          style={{
+            fontSize: 'var(--text-caption)',
+            color: 'var(--mute)',
+            textAlign: 'center',
+            margin: '0 0 1.25rem',
+            lineHeight: 1.4,
+          }}
+        >
+          Fig. 1 — {t.motto || 'Así se descubrió Plutón: alternando dos fotos del mismo cielo.'}
+        </p>
+
+        {/* Texto de contexto */}
         <p
           style={{
             color: 'var(--mute)',
             fontSize: 'var(--text-body)',
             textAlign: 'center',
-            marginBottom: '2.5rem',
+            maxWidth: 580,
+            margin: '0 auto 2.25rem',
             lineHeight: 1.5,
           }}
         >
-          Imágenes infrarrojas del telescopio SPHEREx de la NASA, tomadas en cuatro fechas
-          distintas. Los objetos cercanos cruzan el cielo — los lejanos se quedan fijos.
+          {t.heroDesc}
         </p>
 
         {/* ===== ÍNDICE DE OBJETOS ===== */}
         <section
           aria-label="Objetos de ejemplo"
           style={{
-            background: 'rgba(15,18,33,0.85)',
+            background: 'var(--panel)',
             border: '1px solid var(--line)',
-            borderRadius: 12,
-            backdropFilter: 'blur(10px)',
-            padding: '0.25rem 0.75rem',
-            marginBottom: '1.75rem',
+            borderRadius: 'var(--radius-lg, 8px)',
+            padding: '0.25rem 0.5rem',
+            width: '100%',
+            boxSizing: 'border-box',
           }}
         >
           {/* Cabecera del índice */}
@@ -404,153 +556,107 @@ export function LandingHero({
             style={{
               display: 'grid',
               gridTemplateColumns: '52px 1fr auto',
-              gap: '0.875rem',
-              padding: '0.4rem 0.5rem',
+              gap: '0.75rem',
+              padding: '0.45rem 0.5rem',
               borderBottom: '1px solid var(--line)',
-              marginBottom: '0.1rem',
             }}
           >
             <span style={{ fontSize: 'var(--text-data)', color: 'var(--mute)' }}></span>
-            <span style={{ fontSize: 'var(--text-data)', color: 'var(--mute)', fontWeight: 600 }}>
-              Objeto
+            <span
+              style={{
+                fontSize: 'var(--text-caption)',
+                color: 'var(--mute)',
+                fontWeight: 600,
+              }}
+            >
+              {t.heroTableObject || 'Objeto'}
             </span>
-            <span style={{ fontSize: 'var(--text-data)', color: 'var(--mute)', textAlign: 'right', fontWeight: 600 }}>
-              Velocidad
+            <span
+              style={{
+                fontSize: 'var(--text-caption)',
+                color: 'var(--mute)',
+                textAlign: 'right',
+                fontWeight: 600,
+              }}
+            >
+              {t.heroTableSpeed || 'Velocidad'}
             </span>
           </div>
 
-          {entries.map(([k, o]) => {
-            const mv = movValue(o);
-            const fast = isFast(o);
-            return (
-              <button
-                key={k}
-                onClick={() => onSelect(k)}
-                className="obj-row"
-                style={{
-                  width: '100%',
-                  textAlign: 'left',
-                  background: 'transparent',
-                  border: 'none',
-                  fontFamily: 'var(--font-body)',
-                  color: 'var(--ink)',
-                }}
-                aria-label={`Ver animación de ${o.n}: ${o.tag}`}
-              >
-                {/* Mini canvas animado */}
-                <div className="obj-mini-canvas">
-                  <MiniCanvas objKey={k} pm={o.pm} type={o.type} />
-                </div>
-
-                {/* Nombre + descripción + tipo */}
-                <div style={{ minWidth: 0 }}>
-                  <div
-                    style={{
-                      fontFamily: 'var(--font-display)',
-                      fontSize: '1rem',
-                      fontWeight: 400,
-                      lineHeight: 1.2,
-                      marginBottom: 2,
-                      whiteSpace: 'nowrap',
-                      overflow: 'hidden',
-                      textOverflow: 'ellipsis',
-                    }}
-                  >
-                    {o.n}
-                  </div>
-                  <div
-                    style={{
-                      color: 'var(--mute)',
-                      fontSize: 'var(--text-caption)',
-                      lineHeight: 1.3,
-                      whiteSpace: 'nowrap',
-                      overflow: 'hidden',
-                      textOverflow: 'ellipsis',
-                      marginBottom: 4,
-                    }}
-                  >
-                    {o.tag}
-                  </div>
-                  <span className={`type-tag ${o.type}`}>
-                    {typeLabel(o.type)}
-                  </span>
-                </div>
-
-                {/* Valor de movimiento */}
-                <div>
-                  {mv ? (
-                    <span
-                      className={`pm-value tabular${fast ? ' fast' : ''}`}
-                      title={fast ? 'Objeto de alto movimiento propio' : ''}
-                    >
-                      {mv}
-                    </span>
-                  ) : (
-                    <span style={{ color: 'var(--mute)', fontSize: 'var(--text-data)' }}>—</span>
-                  )}
-                </div>
-              </button>
-            );
-          })}
+          {/* Filas de objetos */}
+          {entries.map(([k, o]) => (
+            <ObjectRow key={k} objKey={k} obj={o} onSelect={onSelect} t={t} />
+          ))}
         </section>
 
-        {/* Buscador */}
-        <form
-          onSubmit={handleSubmit}
-          style={{ display: 'flex', gap: 8 }}
-          aria-label="Buscar objeto astronómico"
-        >
-          <input
-            type="text"
-            value={searchInput}
-            onChange={(e) => setSearchInput(e.target.value)}
-            placeholder="O escribe un objeto (ej. Proxima Cen, 133.79 −7.24)…"
-            style={{
-              flex: 1,
-              padding: '9px 16px',
-              borderRadius: 8,
-              border: '1px solid var(--line)',
-              background: 'rgba(15,18,33,0.9)',
-              color: 'var(--ink)',
-              fontFamily: 'var(--font-body)',
-              fontSize: 'var(--text-body)',
-              outline: 'none',
-            }}
-            onFocus={(e) => (e.target.style.borderColor = 'var(--acc)')}
-            onBlur={(e) => (e.target.style.borderColor = 'var(--line)')}
-          />
-          <button
-            type="submit"
-            disabled={isSearching}
-            className="btn-primary"
+        {/* ===== BUSCADOR Y EXPLORAR POR RADIO EN UNA FILA DISCRETA ===== */}
+        <div className="search-explore-row">
+          {/* Campo de búsqueda sin botón rosa (Enter para buscar) */}
+          <form
+            onSubmit={handleSubmit}
+            style={{ flex: 1, minWidth: 0 }}
+            aria-label="Buscar objeto astronómico"
           >
-            {isSearching ? '…' : 'Buscar'}
-          </button>
-        </form>
+            <input
+              type="text"
+              value={searchInput}
+              onChange={(e) => setSearchInput(e.target.value)}
+              placeholder={
+                t.searchPlaceholder ||
+                'Escribe un objeto o coordenadas (ej. WISE 0855, 133.79 −7.24)…'
+              }
+              style={{
+                width: '100%',
+                padding: '9px 14px',
+                borderRadius: 'var(--radius-sm, 4px)',
+                border: '1px solid var(--line)',
+                background: 'var(--panel)',
+                color: 'var(--ink)',
+                fontFamily: 'var(--font-body)',
+                fontSize: 'var(--text-body)',
+                outline: 'none',
+                boxSizing: 'border-box',
+                transition: 'border-color 0.15s',
+              }}
+              onFocus={(e) => (e.target.style.borderColor = 'var(--line)')}
+              onBlur={(e) => (e.target.style.borderColor = 'var(--line)')}
+            />
+          </form>
 
-        {/* Explorar alrededores */}
-        {onOpenConeSearch && (
-          <div style={{ marginTop: 10, display: 'flex', justifyContent: 'center' }}>
+          {/* Enlace de texto Explorar por radio */}
+          {onOpenConeSearch && (
             <button
               type="button"
               onClick={onOpenConeSearch}
-              className="btn-ghost"
-              style={{ fontSize: 'var(--text-caption)' }}
+              className="explore-link"
+              style={{
+                background: 'none',
+                border: 'none',
+                padding: '8px 4px',
+                color: 'var(--mute)',
+                textDecoration: 'underline',
+                textUnderlineOffset: '3px',
+                fontSize: 'var(--text-body)',
+                fontFamily: 'var(--font-body)',
+                cursor: 'pointer',
+                whiteSpace: 'nowrap',
+                flexShrink: 0,
+                transition: 'color 0.15s',
+              }}
+              onMouseEnter={(e) => (e.currentTarget.style.color = 'var(--ink)')}
+              onMouseLeave={(e) => (e.currentTarget.style.color = 'var(--mute)')}
             >
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <circle cx="11" cy="11" r="8" /><path d="m21 21-4.35-4.35" />
-              </svg>
-              Explorar una zona del cielo por radio
+              {t.exploreConeBtn || 'Explorar por radio'}
             </button>
-          </div>
-        )}
+          )}
+        </div>
 
-        {/* Mensaje de búsqueda */}
+        {/* Mensaje de estado / error de búsqueda */}
         {searchMessage && (
           <p
             role="status"
             style={{
-              color: 'var(--acc)',
+              color: 'var(--alert)',
               fontSize: 'var(--text-caption)',
               marginTop: 10,
               textAlign: 'center',

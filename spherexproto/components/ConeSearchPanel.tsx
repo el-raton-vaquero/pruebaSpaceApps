@@ -6,6 +6,7 @@ import {
   ConeFilterType,
   CURATED_CONE_TARGETS,
   searchCone,
+  mockConeSearch,
   formatSeparation,
   formatMovementSpeed,
 } from '../lib/coneSearch';
@@ -58,7 +59,13 @@ export function ConeSearchPanel({
   const [hoveredResultId, setHoveredResultId] = useState<string | null>(null);
 
   // Status & Data
-  const [rawResults, setRawResults] = useState<ConeResult[]>([]);
+  const [rawResults, setRawResults] = useState<ConeResult[]>(() => {
+    try {
+      return mockConeSearch({ ra: currentRa, dec: currentDec, radiusArcmin: initialRadius });
+    } catch {
+      return [];
+    }
+  });
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [loadingStep, setLoadingStep] = useState<string>('Iniciando consulta...');
   const [errorMessage, setErrorMessage] = useState<string>('');
@@ -188,9 +195,6 @@ export function ConeSearchPanel({
       });
     }
 
-    // Sort order:
-    // Center object (0″) always first
-    // Then sort according to user selection ('interest' or 'distance')
     const sorted = [...list].sort((a, b) => {
       if (a.sepArcsec === 0 && b.sepArcsec !== 0) return -1;
       if (b.sepArcsec === 0 && a.sepArcsec !== 0) return 1;
@@ -200,7 +204,6 @@ export function ConeSearchPanel({
         return b.interestScore - a.interestScore;
       }
 
-      // Default: sort by interestScore descending
       if (b.interestScore !== a.interestScore) return b.interestScore - a.interestScore;
       return a.sepArcsec - b.sepArcsec;
     });
@@ -224,14 +227,12 @@ export function ConeSearchPanel({
 
     setErrorMessage('');
 
-    // 1. Try coordinate parsing
     const parsed = parseCoordinates(query);
     if (parsed) {
       setActiveCoords(parsed);
       return;
     }
 
-    // 2. Try Sesame / catalog resolver
     setIsLoading(true);
     setLoadingStep(`Resolviendo nombre "${query}" en CDS Sesame...`);
     try {
@@ -315,101 +316,176 @@ export function ConeSearchPanel({
     <div
       role="dialog"
       aria-modal="true"
-      aria-label="Explorar alrededores por radio"
-      className="fixed inset-0 z-40 pointer-events-auto flex justify-end transition-opacity"
+      aria-label="Explorar el vecindario"
+      style={{
+        position: 'fixed',
+        inset: 0,
+        zIndex: 50,
+      }}
+      className="flex flex-row md:justify-end max-md:flex-col max-md:justify-end"
     >
       {/* Backdrop */}
       <div
         onClick={onClose}
-        className="fixed inset-0 bg-black/60 backdrop-blur-xs transition-opacity"
+        style={{
+          position: 'fixed',
+          inset: 0,
+          background: 'rgba(0, 0, 0, 0.55)',
+        }}
       />
 
       {/* Drawer Container (Desktop Sidebar / Mobile Bottom Sheet) */}
       <div
         ref={panelRef}
-        className="relative z-50 w-full max-w-md md:max-w-lg bg-[#0e1126] border-l border-[#272a4f] shadow-2xl flex flex-col h-full max-md:max-h-[90vh] max-md:rounded-t-3xl max-md:mt-auto animate-slide-in text-[#f1eefb]"
+        style={{
+          position: 'relative',
+          zIndex: 60,
+          width: '100%',
+          maxWidth: 440,
+          background: 'var(--panel)',
+          display: 'flex',
+          flexDirection: 'column',
+          color: 'var(--ink)',
+          boxShadow: '-4px 0 24px rgba(0,0,0,0.3)',
+        }}
+        className="h-full md:border-l md:border-[var(--line)] max-md:h-auto max-md:max-h-[85vh] max-md:rounded-t-xl max-md:border-t max-md:border-[var(--line)] animate-slide-in"
       >
         {/* Panel Header */}
-        <div className="flex items-center justify-between p-4 sm:p-5 border-b border-[#272a4f] bg-[#070914]">
-          <div className="flex items-center gap-3">
-            <span className="w-2.5 h-2.5 rounded-full bg-[#ff5a7e] animate-pulse" />
-            <div>
-              <h2 className="text-base sm:text-lg font-bold text-white tracking-tight leading-tight">
-                Explorar el vecindario
-              </h2>
-              <p className="text-xs text-[#9a95b8] font-mono">
-                Búsqueda por radio en el infrarrojo (SPHEREx / Gaia / WISE)
-              </p>
-            </div>
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            padding: '14px 18px',
+            borderBottom: '1px solid var(--line)',
+            background: 'var(--panel)',
+          }}
+        >
+          <div>
+            <h2
+              style={{
+                fontFamily: 'var(--font-display)',
+                fontSize: '1.25rem',
+                fontWeight: 400,
+                color: 'var(--ink)',
+                margin: 0,
+                lineHeight: 1.2,
+              }}
+            >
+              Explorar el vecindario
+            </h2>
+            <p style={{ fontSize: 'var(--text-data)', color: 'var(--mute)', margin: '2px 0 0' }}>
+              Búsqueda por radio en el infrarrojo (SPHEREx / Gaia / WISE)
+            </p>
           </div>
           <button
             onClick={onClose}
             aria-label="Cerrar panel de exploración"
-            className="w-8 h-8 rounded-full bg-[#141733] hover:bg-[#272a4f] text-[#9a95b8] hover:text-white flex items-center justify-center font-bold text-sm transition-colors cursor-pointer"
+            style={{
+              background: 'none',
+              border: 'none',
+              color: 'var(--mute)',
+              fontSize: '1.1rem',
+              cursor: 'pointer',
+              padding: '4px 8px',
+            }}
           >
             ✕
           </button>
         </div>
 
         {/* Scrollable Content */}
-        <div className="flex-1 overflow-y-auto p-4 sm:p-5 space-y-4 text-xs sm:text-sm">
+        <div
+          style={{
+            flex: 1,
+            overflowY: 'auto',
+            padding: '16px 18px',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 16,
+          }}
+        >
           {/* 1. Centro Selector */}
-          <div className="bg-[#070914] border border-[#272a4f] rounded-2xl p-3.5 space-y-2.5">
-            <div className="flex items-center justify-between">
-              <label htmlFor="center-input" className="font-bold text-white text-xs">
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '4px 10px' }}>
+              <label htmlFor="center-input" style={{ fontSize: 'var(--text-caption)', fontWeight: 600, color: 'var(--ink)' }}>
                 Centro de observación
               </label>
-              <div className="flex items-center gap-2">
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                 <button
                   type="button"
                   onClick={resetToViewerCenter}
-                  className="text-[11px] text-[#ff5a7e] hover:underline font-semibold cursor-pointer"
+                  className="link-text"
+                  style={{ fontSize: 'var(--text-data)' }}
                   title="Restablecer al objeto cargado en el visor"
                 >
                   Usar objeto actual
                 </button>
-                <span className="text-[#3a3e68]">·</span>
+                <span style={{ color: 'var(--line)' }}>·</span>
                 <button
                   type="button"
                   onClick={handleSurpriseMe}
-                  className="text-[11px] text-[#38bdf8] hover:underline font-semibold cursor-pointer flex items-center gap-1"
+                  className="link-text"
+                  style={{ fontSize: 'var(--text-data)' }}
                   title="Saltar a un objetivo astronómico notable"
                 >
-                  <span>🎲</span> Sorpréndeme
+                  Sorpréndeme
                 </button>
               </div>
             </div>
 
-            <form onSubmit={handleCenterSubmit} className="flex gap-2">
+            <form onSubmit={handleCenterSubmit} style={{ display: 'flex', gap: 6 }}>
               <input
                 id="center-input"
                 type="text"
                 value={centerInput}
                 onChange={(e) => setCenterInput(e.target.value)}
                 placeholder="Nombre o coords (ej. 76.956 30.401 o 05h07m49s)"
-                className="flex-1 px-3 py-1.5 rounded-xl border border-[#272a4f] bg-[#0e1126] text-xs text-white placeholder-[#686482] focus:outline-none focus:border-[#ff5a7e]"
+                style={{
+                  flex: 1,
+                  padding: '6px 10px',
+                  borderRadius: 'var(--radius-sm, 4px)',
+                  border: '1px solid var(--line)',
+                  background: 'var(--panel-raised)',
+                  color: 'var(--ink)',
+                  fontSize: 'var(--text-caption)',
+                  outline: 'none',
+                }}
               />
               <button
                 type="submit"
                 disabled={isLoading}
-                className="px-3.5 py-1.5 rounded-xl bg-[#272a4f] hover:bg-[#34396b] text-white text-xs font-bold transition-colors cursor-pointer disabled:opacity-50"
+                className="btn-primary"
+                style={{ padding: '6px 12px' }}
               >
                 Fijar
               </button>
             </form>
 
-            <div className="text-[11px] font-mono text-[#9a95b8] flex justify-between pt-0.5">
+            <div
+              style={{
+                fontSize: 'var(--text-data)',
+                color: 'var(--mute)',
+                display: 'flex',
+                justifyContent: 'space-between',
+                flexWrap: 'wrap',
+                gap: 4,
+                fontVariantNumeric: 'tabular-nums',
+              }}
+            >
               <span>{raStr}, {decStr}</span>
               <span>({activeCoords.ra.toFixed(4)}°, {activeCoords.dec.toFixed(4)}°)</span>
             </div>
           </div>
 
           {/* 2. Radius Logarithmic Ruler */}
-          <div className="bg-[#070914] border border-[#272a4f] rounded-2xl p-3.5 space-y-2.5">
-            <div className="flex items-center justify-between">
-              <span className="font-bold text-white text-xs">Radio de búsqueda</span>
-              <span className="font-mono font-bold text-[#ff5a7e] text-sm">
-                {radiusArcmin}′ <span className="text-[10px] text-[#9a95b8]">({radiusArcmin * 60}″)</span>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8, borderTop: '1px solid var(--line)', paddingTop: 14 }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <span style={{ fontSize: 'var(--text-caption)', fontWeight: 600, color: 'var(--ink)' }}>
+                Radio de búsqueda
+              </span>
+              <span style={{ fontVariantNumeric: 'tabular-nums', fontWeight: 700, color: 'var(--alert)', fontSize: 'var(--text-body)' }}>
+                {radiusArcmin}′ <span style={{ fontSize: 'var(--text-data)', color: 'var(--mute)', fontWeight: 400 }}>({radiusArcmin * 60}″)</span>
               </span>
             </div>
 
@@ -421,52 +497,69 @@ export function ConeSearchPanel({
               value={radiusArcmin}
               onChange={(e) => setRadiusArcmin(parseInt(e.target.value, 10))}
               aria-label="Radio de búsqueda en minutos de arco"
-              className="w-full accent-[#ff5a7e] cursor-pointer"
+              style={{ width: '100%', accentColor: 'var(--alert)', cursor: 'pointer' }}
             />
 
             {/* Quick tick buttons */}
-            <div className="flex justify-between items-center text-[10px] text-[#9a95b8] font-mono">
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 'var(--text-data)', color: 'var(--mute)', fontVariantNumeric: 'tabular-nums' }}>
               {rulerTicks.map((t) => (
                 <button
                   key={t}
                   type="button"
                   onClick={() => setRadiusArcmin(t)}
-                  className={`px-1.5 py-0.5 rounded hover:text-white transition-colors cursor-pointer ${
-                    radiusArcmin === t ? 'text-[#ff5a7e] font-bold bg-[#ff5a7e]/15' : ''
-                  }`}
+                  style={{
+                    padding: '2px 6px',
+                    borderRadius: 'var(--radius-sm, 4px)',
+                    border: `1px solid ${radiusArcmin === t ? 'var(--alert)' : 'transparent'}`,
+                    background: radiusArcmin === t ? 'rgba(255,107,53,0.12)' : 'transparent',
+                    color: radiusArcmin === t ? 'var(--alert)' : 'var(--mute)',
+                    cursor: 'pointer',
+                    fontWeight: radiusArcmin === t ? 700 : 400,
+                  }}
                 >
                   {t}′
                 </button>
               ))}
             </div>
 
-            {/* Astronomical context lines (Calculadas rigurosamente) */}
-            <div className="text-[11px] text-[#9a95b8] bg-[#0e1126] border border-[#1e224d] rounded-xl p-2.5 space-y-1">
-              <p className="flex items-center gap-1.5">
-                <span className="text-white font-semibold">Equivalencia lunar:</span>
-                <span>{moonDiameterEquiv}× el diámetro de la Luna llena (~30′).</span>
-              </p>
-              <p className="flex items-center gap-1.5">
-                <span className="text-white font-semibold">Seguimiento:</span>
-                <span>
-                  Un objeto a 10″/año recorre {fastMoverTravel2YrArcsec}″ en dos años: este radio ({radiusArcsec}″) es{' '}
-                  <strong className={isRadiusSufficient ? 'text-emerald-400' : 'text-amber-400'}>
-                    {isRadiusSufficient ? 'holgadamente suficiente' : 'estrecho'}
-                  </strong>{' '}
-                  para seguirlo en SPHEREx.
-                </span>
-              </p>
+            {/* Astronomical context lines */}
+            <div
+              style={{
+                fontSize: 'var(--text-data)',
+                color: 'var(--mute)',
+                background: 'var(--panel-raised)',
+                border: '1px solid var(--line)',
+                borderRadius: 'var(--radius-sm, 4px)',
+                padding: '8px 10px',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 4,
+              }}
+            >
+              <div>
+                <strong style={{ color: 'var(--ink)' }}>Equivalencia lunar:</strong> {moonDiameterEquiv}× el diámetro de la Luna llena (~30′).
+              </div>
+              <div>
+                <strong style={{ color: 'var(--ink)' }}>Seguimiento:</strong> Un objeto a 10″/año recorre {fastMoverTravel2YrArcsec}″ en dos años: este radio ({radiusArcsec}″) es{' '}
+                <span style={{ color: isRadiusSufficient ? 'var(--ink)' : 'var(--alert)', fontWeight: 600 }}>
+                  {isRadiusSufficient ? 'suficiente' : 'estrecho'}
+                </span>{' '}
+                para seguirlo en SPHEREx.
+              </div>
             </div>
           </div>
 
-          {/* 3. Carta Celeste del Panel */}
-          <div className="space-y-1.5">
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-bold text-white">Carta celeste del cono:</span>
+          {/* 3. Carta Celeste del Panel (Elemento Protagonista) */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6, borderTop: '1px solid var(--line)', paddingTop: 14 }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <span style={{ fontSize: 'var(--text-caption)', fontWeight: 600, color: 'var(--ink)' }}>
+                Carta celeste del cono
+              </span>
               <button
                 type="button"
                 onClick={() => setShowChart((v) => !v)}
-                className="text-[11px] text-[#9a95b8] hover:text-white underline cursor-pointer"
+                className="link-text"
+                style={{ fontSize: 'var(--text-data)' }}
               >
                 {showChart ? 'Ocultar carta' : 'Ver carta celeste'}
               </button>
@@ -495,9 +588,11 @@ export function ConeSearchPanel({
           </div>
 
           {/* 4. Filter Chips con contadores calculados dinámicamente */}
-          <div>
-            <span className="block font-bold text-white text-xs mb-2">Filtrar candidatos:</span>
-            <div className="flex flex-wrap gap-1.5">
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6, borderTop: '1px solid var(--line)', paddingTop: 14 }}>
+            <span style={{ fontSize: 'var(--text-caption)', fontWeight: 600, color: 'var(--ink)' }}>
+              Filtrar candidatos:
+            </span>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
               {[
                 { id: 'all' as ConeFilterType, label: 'Todos', count: counts.all },
                 { id: 'fast' as ConeFilterType, label: 'Se mueven rápido', count: counts.fast },
@@ -511,17 +606,27 @@ export function ConeSearchPanel({
                     key={chip.id}
                     type="button"
                     onClick={() => toggleFilter(chip.id)}
-                    className={`px-3 py-1.5 rounded-full text-xs font-semibold border transition-all cursor-pointer flex items-center gap-1.5 ${
-                      active
-                        ? 'bg-[#ff5a7e] text-white border-[#ff5a7e] shadow-sm'
-                        : 'bg-[#070914] text-[#9a95b8] border-[#272a4f] hover:text-white hover:border-[#9a95b8]'
-                    }`}
+                    style={{
+                      padding: '4px 10px',
+                      borderRadius: 'var(--radius-sm, 4px)',
+                      border: `1px solid ${active ? 'var(--ink)' : 'var(--line)'}`,
+                      background: active ? 'var(--panel-raised)' : 'transparent',
+                      color: active ? 'var(--ink)' : 'var(--mute)',
+                      fontSize: 'var(--text-data)',
+                      fontWeight: active ? 600 : 500,
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 6,
+                    }}
                   >
                     <span>{chip.label}</span>
                     <span
-                      className={`text-[10px] px-1.5 py-0.2 rounded-full font-mono font-bold ${
-                        active ? 'bg-white/25 text-white' : 'bg-[#141733] text-[#9a95b8]'
-                      }`}
+                      style={{
+                        fontVariantNumeric: 'tabular-nums',
+                        fontWeight: 700,
+                        color: active ? 'var(--alert)' : 'var(--mute)',
+                      }}
                     >
                       {chip.count}
                     </span>
@@ -532,15 +637,25 @@ export function ConeSearchPanel({
           </div>
 
           {noticeMessage && !errorMessage && (
-            <div className="text-[11px] text-[#9a95b8] italic">
-              ℹ️ {noticeMessage}
+            <div style={{ fontSize: 'var(--text-data)', color: 'var(--mute)', fontStyle: 'italic' }}>
+              {noticeMessage}
             </div>
           )}
 
-          {/* 5. Header de la Sección de Resultados con ordenación */}
-          <div className="flex items-center justify-between pt-2 border-t border-[#272a4f]">
+          {/* 5. Header de la Sección de Resultados con ordenación y acción Cazar */}
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              flexWrap: 'wrap',
+              gap: 8,
+              borderTop: '1px solid var(--line)',
+              paddingTop: 12,
+            }}
+          >
             <div>
-              <span className="font-bold text-white text-xs">
+              <span style={{ fontSize: 'var(--text-caption)', fontWeight: 600, color: 'var(--ink)' }}>
                 {isLoading
                   ? 'Consultando catálogos celestes…'
                   : errorMessage
@@ -548,104 +663,159 @@ export function ConeSearchPanel({
                   : `${displayedResults.length} objeto${displayedResults.length === 1 ? '' : 's'} en ${radiusArcmin}′`}
               </span>
               {!isLoading && !errorMessage && displayedResults.length >= 200 && (
-                <span className="block text-[10px] text-[#9a95b8]">
+                <span style={{ display: 'block', fontSize: 'var(--text-data)', color: 'var(--mute)' }}>
                   Mostrando los 200 más interesantes del área
                 </span>
               )}
             </div>
 
-            {/* Sort toggle */}
-            {!isLoading && displayedResults.length > 1 && (
-              <div className="flex items-center gap-1 text-[11px] font-mono text-[#9a95b8]">
-                <span>Ordenar:</span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+              {onHuntArea && !isLoading && displayedResults.length > 0 && (
                 <button
                   type="button"
-                  onClick={() => setSortBy('interest')}
-                  className={`px-1.5 py-0.5 rounded cursor-pointer ${
-                    sortBy === 'interest' ? 'text-[#ff5a7e] font-bold bg-[#ff5a7e]/15' : 'hover:text-white'
-                  }`}
+                  onClick={() => {
+                    sound.playTargetSelect();
+                    onHuntArea();
+                    onClose();
+                  }}
+                  className="btn-primary"
+                  style={{
+                    padding: '3px 8px',
+                    fontSize: 'var(--text-data)',
+                  }}
+                  title="Detectar dipolos de movimiento y cruzarlos con el catálogo"
                 >
-                  Interés
+                  Cazar movimiento en esta zona
                 </button>
-                <span>·</span>
-                <button
-                  type="button"
-                  onClick={() => setSortBy('distance')}
-                  className={`px-1.5 py-0.5 rounded cursor-pointer ${
-                    sortBy === 'distance' ? 'text-[#ff5a7e] font-bold bg-[#ff5a7e]/15' : 'hover:text-white'
-                  }`}
-                >
-                  Distancia
-                </button>
-              </div>
-            )}
+              )}
+
+              {/* Sort toggle */}
+              {!isLoading && displayedResults.length > 1 && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 'var(--text-data)', color: 'var(--mute)' }}>
+                  <span>Ordenar:</span>
+                  <button
+                    type="button"
+                    onClick={() => setSortBy('interest')}
+                    className="link-text"
+                    style={{
+                      color: sortBy === 'interest' ? 'var(--ink)' : 'var(--mute)',
+                      fontWeight: sortBy === 'interest' ? 700 : 400,
+                      textDecoration: sortBy === 'interest' ? 'underline' : 'none',
+                    }}
+                  >
+                    Interés
+                  </button>
+                  <span>·</span>
+                  <button
+                    type="button"
+                    onClick={() => setSortBy('distance')}
+                    className="link-text"
+                    style={{
+                      color: sortBy === 'distance' ? 'var(--ink)' : 'var(--mute)',
+                      fontWeight: sortBy === 'distance' ? 700 : 400,
+                      textDecoration: sortBy === 'distance' ? 'underline' : 'none',
+                    }}
+                  >
+                    Distancia
+                  </button>
+                </div>
+              )}
+            </div>
           </div>
 
-          {/* 6. Resultados en Formato Cuaderno de Campo (Notebook Table) */}
+          {/* 6. Resultados en Formato Cuaderno de Campo (Field Notebook) */}
           {isLoading ? (
-            <div className="space-y-3 py-2">
-              <div className="p-4 rounded-2xl bg-[#070914] border border-[#272a4f] text-center space-y-2">
-                <span className="w-4 h-4 border-2 border-[#ff5a7e] border-t-transparent rounded-full animate-spin inline-block" />
-                <p className="text-xs text-[#cbd5e1] font-mono">{loadingStep}</p>
-                <div className="flex justify-center gap-4 text-[10px] text-[#64748b] font-mono">
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10, padding: '8px 0' }}>
+              <div
+                style={{
+                  padding: 16,
+                  borderRadius: 'var(--radius-sm, 4px)',
+                  background: 'var(--panel-raised)',
+                  border: '1px solid var(--line)',
+                  textAlign: 'center',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: 8,
+                }}
+              >
+                <p style={{ fontSize: 'var(--text-caption)', color: 'var(--ink)', margin: 0 }}>
+                  {loadingStep}
+                </p>
+                <div style={{ display: 'flex', justifyContent: 'center', gap: 16, fontSize: 'var(--text-data)', color: 'var(--mute)' }}>
                   <span>SIMBAD (CDS)</span>
                   <span>Gaia DR3 (ESA)</span>
                   <span>CatWISE (NASA)</span>
                 </div>
               </div>
-              {[1, 2, 3].map((i) => (
-                <div
-                  key={i}
-                  className="p-3.5 rounded-2xl bg-[#070914] border border-[#272a4f] animate-pulse space-y-2"
-                >
-                  <div className="h-4 bg-[#1e224d] rounded w-2/3" />
-                  <div className="h-3 bg-[#1e224d] rounded w-1/2" />
-                </div>
-              ))}
             </div>
           ) : errorMessage ? (
-            <div className="p-6 rounded-2xl bg-red-950/40 border border-red-800/80 text-center text-xs text-red-200 space-y-3">
-              <p className="font-bold text-white text-sm">
+            <div
+              style={{
+                padding: 16,
+                borderRadius: 'var(--radius-sm, 4px)',
+                background: 'rgba(239, 68, 68, 0.08)',
+                border: '1px solid rgba(239, 68, 68, 0.25)',
+                textAlign: 'center',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 8,
+              }}
+            >
+              <p style={{ fontWeight: 600, color: 'var(--ink)', fontSize: 'var(--text-body)', margin: 0 }}>
                 Error al consultar el catálogo celeste
               </p>
-              <p className="text-red-200/80 text-xs">
+              <p style={{ fontSize: 'var(--text-caption)', color: 'var(--mute)', margin: 0 }}>
                 {errorMessage}
               </p>
-              <button
-                type="button"
-                onClick={() => executeSearch(activeCoords.ra, activeCoords.dec, radiusArcmin)}
-                className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-red-600 hover:bg-red-500 text-white font-bold text-xs shadow-md transition-colors cursor-pointer"
-              >
-                <span>↻</span> Reintentar búsqueda
-              </button>
+              <div>
+                <button
+                  type="button"
+                  onClick={() => executeSearch(activeCoords.ra, activeCoords.dec, radiusArcmin)}
+                  className="btn-primary"
+                  style={{ padding: '6px 14px' }}
+                >
+                  Reintentar búsqueda
+                </button>
+              </div>
             </div>
           ) : displayedResults.length === 0 ? (
-            <div className="p-6 rounded-2xl bg-[#070914] border border-[#272a4f] text-center text-xs text-[#9a95b8] space-y-3">
-              <p className="font-semibold text-white text-sm">
+            <div
+              style={{
+                padding: 20,
+                borderRadius: 'var(--radius-sm, 4px)',
+                background: 'var(--panel-raised)',
+                border: '1px solid var(--line)',
+                textAlign: 'center',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 8,
+              }}
+            >
+              <p style={{ fontWeight: 600, color: 'var(--ink)', fontSize: 'var(--text-body)', margin: 0 }}>
                 Sin resultados en este radio
               </p>
-              <p className="text-xs text-[#9a95b8] max-w-xs mx-auto">
+              <p style={{ fontSize: 'var(--text-caption)', color: 'var(--mute)', margin: 0 }}>
                 No encontramos objetos dentro de {radiusArcmin}′ con los filtros activos.
               </p>
-              <div className="pt-2 flex flex-col sm:flex-row gap-2 justify-center">
+              <div style={{ display: 'flex', gap: 8, justifyContent: 'center', marginTop: 4 }}>
                 <button
                   type="button"
                   onClick={() => setRadiusArcmin(Math.min(60, Math.max(20, radiusArcmin * 2)))}
-                  className="px-3.5 py-1.5 rounded-xl bg-[#272a4f] hover:bg-[#34396b] text-white font-bold text-xs transition-colors cursor-pointer"
+                  className="btn-ghost"
                 >
                   Sube el radio a {Math.min(60, Math.max(20, radiusArcmin * 2))}′
                 </button>
                 <button
                   type="button"
                   onClick={() => setFilters(['all'])}
-                  className="px-3.5 py-1.5 rounded-xl bg-[#141733] hover:bg-[#272a4f] text-[#9a95b8] hover:text-white font-bold text-xs transition-colors cursor-pointer"
+                  className="btn-ghost"
                 >
                   Activar filtro &quot;Todos&quot;
                 </button>
               </div>
             </div>
           ) : (
-            <div className="space-y-2.5 pb-6">
+            <div style={{ display: 'flex', flexDirection: 'column', paddingBottom: 24 }}>
               {displayedResults.map((item: ConeResult) => {
                 const isHovered = hoveredResultId === item.id;
                 const isCenter = item.sepArcsec === 0;
@@ -656,13 +826,11 @@ export function ConeSearchPanel({
                     key={item.id}
                     onMouseEnter={() => setHoveredResultId(item.id)}
                     onMouseLeave={() => setHoveredResultId(null)}
-                    className={`rounded-2xl border transition-all ${
-                      isHovered
-                        ? 'bg-[#15193b] border-[#ff5a7e] shadow-lg'
-                        : isCenter
-                        ? 'bg-[#111533] border-[#ffd34f]/50'
-                        : 'bg-[#070914] border-[#272a4f] hover:border-[#ff5a7e]/60'
-                    }`}
+                    style={{
+                      borderBottom: '1px solid var(--line)',
+                      background: isHovered ? 'var(--panel-raised)' : 'transparent',
+                      transition: 'background 0.12s',
+                    }}
                   >
                     {/* Main Row Clickable Button */}
                     <button
@@ -672,50 +840,96 @@ export function ConeSearchPanel({
                         onSelectResult(item);
                         onClose();
                       }}
-                      className="w-full text-left p-3.5 flex items-start justify-between gap-3 cursor-pointer group"
+                      style={{
+                        width: '100%',
+                        textAlign: 'left',
+                        padding: '10px 4px',
+                        display: 'flex',
+                        alignItems: 'flex-start',
+                        justifyContent: 'space-between',
+                        gap: 10,
+                        background: 'none',
+                        border: 'none',
+                        cursor: 'pointer',
+                        color: 'inherit',
+                      }}
                     >
-                      <div className="flex items-start gap-2.5 min-w-0">
+                      <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10, minWidth: 0 }}>
                         {/* Marker Number Pill */}
                         <span
-                          className={`w-6 h-6 rounded-full font-mono font-bold text-xs flex items-center justify-center shrink-0 shadow-sm mt-0.5 ${
-                            isCenter ? 'bg-[#ffd34f] text-black' : 'bg-[#ff5a7e] text-white'
-                          }`}
+                          style={{
+                            width: 22,
+                            height: 22,
+                            borderRadius: '50%',
+                            fontVariantNumeric: 'tabular-nums',
+                            fontWeight: 700,
+                            fontSize: '0.68rem',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            flexShrink: 0,
+                            marginTop: 1,
+                            background: isCenter
+                              ? 'var(--ink)'
+                              : item.isColdCandidate || item.pmArcsecPerYear >= 0.20
+                              ? 'var(--alert)'
+                              : 'var(--panel-raised)',
+                            color: isCenter
+                              ? 'var(--panel)'
+                              : item.isColdCandidate || item.pmArcsecPerYear >= 0.20
+                              ? '#fff'
+                              : 'var(--ink)',
+                            border: `1px solid ${isCenter ? 'var(--ink)' : 'var(--line)'}`,
+                          }}
                         >
                           {item.number}
                         </span>
 
-                        <div className="min-w-0">
+                        <div style={{ minWidth: 0 }}>
                           {/* Name and Candidate Badges */}
-                          <div className="flex items-center gap-1.5 flex-wrap">
-                            <h3 className="font-bold text-white text-xs sm:text-sm truncate group-hover:text-[#ff5a7e] transition-colors">
+                          <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, flexWrap: 'wrap' }}>
+                            <span style={{ fontWeight: 600, color: 'var(--ink)', fontSize: 'var(--text-body)' }}>
                               {item.name}
-                            </h3>
+                            </span>
                             {item.isCandidate && (
-                              <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-[#ffd34f]/20 text-[#ffd34f] border border-[#ffd34f]/40 uppercase tracking-wider">
+                              <span
+                                style={{
+                                  fontSize: '0.65rem',
+                                  fontWeight: 600,
+                                  color: 'var(--alert)',
+                                  textTransform: 'uppercase',
+                                }}
+                              >
                                 Candidato
                               </span>
                             )}
                             {item.isColdCandidate && (
-                              <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-[#38bdf8]/20 text-[#38bdf8] border border-[#38bdf8]/40">
+                              <span
+                                style={{
+                                  fontSize: '0.65rem',
+                                  fontWeight: 600,
+                                  color: '#38bdf8',
+                                }}
+                              >
                                 Sin pareja en Gaia
                               </span>
                             )}
                           </div>
 
-                          {/* Kind in human language */}
-                          <p className="text-[11px] text-[#ff5a7e] font-semibold mt-0.5 truncate">
+                          {/* Kind in plain language */}
+                          <p style={{ fontSize: 'var(--text-caption)', color: 'var(--mute)', margin: '2px 0 0' }}>
                             {item.kindLabel}
                           </p>
 
                           {/* Speed & Distance */}
-                          <p className="text-[11px] text-[#9a95b8] mt-0.5 font-mono">
+                          <p style={{ fontSize: 'var(--text-data)', color: item.pmArcsecPerYear >= 0.20 ? 'var(--alert)' : 'var(--mute)', margin: '2px 0 0', fontVariantNumeric: 'tabular-nums', fontWeight: item.pmArcsecPerYear >= 0.20 ? 600 : 400 }}>
                             {formatMovementSpeed(item.pmArcsecPerYear)}
                             {item.distanceLy && ` · ${item.distanceLy}`}
                           </p>
 
                           {/* Scientific justification in 1 human sentence */}
                           {item.interestReason && (
-                            <p className="text-[11px] text-[#cbd5e1] mt-1.5 leading-snug line-clamp-2">
+                            <p style={{ fontSize: 'var(--text-caption)', color: 'var(--ink)', margin: '4px 0 0', lineHeight: 1.4 }}>
                               {item.interestReason}
                             </p>
                           )}
@@ -723,36 +937,41 @@ export function ConeSearchPanel({
                       </div>
 
                       {/* Right Column: Distance & Score */}
-                      <div className="text-right shrink-0 flex flex-col items-end gap-1">
-                        <span className="block font-mono font-bold text-white text-xs">
+                      <div style={{ textAlign: 'right', flexShrink: 0, display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 2 }}>
+                        <span style={{ fontVariantNumeric: 'tabular-nums', fontWeight: 600, color: 'var(--ink)', fontSize: 'var(--text-caption)' }}>
                           {isCenter ? '0″ (Centro)' : `A ${formatSeparation(item.sepArcsec)}`}
                         </span>
-                        <span className="text-[10px] text-[#9a95b8]">
+                        <span style={{ fontSize: 'var(--text-data)', color: 'var(--mute)' }}>
                           {isCenter ? 'Referencia' : 'del centro'}
                         </span>
-                        <span className="text-[10px] font-mono font-bold text-[#ff5a7e] bg-[#ff5a7e]/10 px-1.5 py-0.5 rounded border border-[#ff5a7e]/20 mt-1">
+                        <span style={{ fontSize: '0.68rem', fontVariantNumeric: 'tabular-nums', color: 'var(--mute)', marginTop: 2 }}>
                           {item.interestScore} pts
                         </span>
                       </div>
                     </button>
 
                     {/* Bottom Toolbar of the Item: Catalog Sources & Raw Technical Drawer */}
-                    <div className="px-3.5 pb-2.5 pt-0 flex items-center justify-between text-[10px] font-mono border-t border-[#1e224d]/60">
-                      <div className="flex items-center gap-1.5 text-[#64748b]">
-                        <span>Fuentes:</span>
-                        <span className="px-1 py-0.2 rounded bg-[#141733] text-[#cbd5e1]">
+                    <div
+                      style={{
+                        padding: '4px 4px 8px 32px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        fontSize: 'var(--text-data)',
+                        color: 'var(--mute)',
+                      }}
+                    >
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                        <span>Fuente:</span>
+                        <span>
                           {item.source === 'crossmatch' || (item.source as string) === 'federated'
                             ? 'SIMBAD + Gaia'
                             : item.source.toUpperCase()}
                         </span>
-                        {item.w1MinusW2 !== undefined && (
-                          <span className="px-1 py-0.2 rounded bg-[#141733] text-[#38bdf8]">
-                            CatWISE
-                          </span>
-                        )}
+                        {item.w1MinusW2 !== undefined && <span>· CatWISE</span>}
                       </div>
 
-                      <div className="flex items-center gap-2">
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
                         {onHuntArea && (
                           <button
                             type="button"
@@ -763,9 +982,10 @@ export function ConeSearchPanel({
                               onHuntArea();
                               onClose();
                             }}
-                            className="text-[#facc15] hover:underline font-semibold cursor-pointer"
+                            className="link-text"
+                            style={{ fontSize: 'var(--text-data)', color: 'var(--alert)' }}
                           >
-                            ★ Cazar en visor
+                            Cazar en visor
                           </button>
                         )}
                         <button
@@ -774,7 +994,8 @@ export function ConeSearchPanel({
                             e.stopPropagation();
                             setExpandedDetailsId(isDetailsOpen ? null : item.id);
                           }}
-                          className="text-[#9a95b8] hover:text-white underline cursor-pointer"
+                          className="link-text"
+                          style={{ fontSize: 'var(--text-data)' }}
                         >
                           {isDetailsOpen ? 'Ocultar datos' : 'Datos técnicos'}
                         </button>
@@ -783,24 +1004,37 @@ export function ConeSearchPanel({
 
                     {/* Raw Scientific Parameters Drawer */}
                     {isDetailsOpen && (
-                      <div className="px-3.5 pb-3 pt-2 bg-[#070914] rounded-b-2xl border-t border-[#1e224d] text-[10px] font-mono text-[#9a95b8] grid grid-cols-2 gap-2">
+                      <div
+                        style={{
+                          margin: '0 4px 8px 32px',
+                          padding: '8px 10px',
+                          background: 'var(--panel-raised)',
+                          border: '1px solid var(--line)',
+                          borderRadius: 'var(--radius-sm, 4px)',
+                          fontSize: 'var(--text-data)',
+                          fontVariantNumeric: 'tabular-nums',
+                          display: 'grid',
+                          gridTemplateColumns: 'repeat(2, 1fr)',
+                          gap: 6,
+                        }}
+                      >
                         <div>
-                          <span className="text-[#64748b] block">RA / Dec (ICRS):</span>
-                          <span className="text-white">{item.ra.toFixed(5)}°, {item.dec.toFixed(5)}°</span>
+                          <span style={{ color: 'var(--mute)', display: 'block' }}>RA / Dec (ICRS):</span>
+                          <span>{item.ra.toFixed(5)}°, {item.dec.toFixed(5)}°</span>
                         </div>
                         <div>
-                          <span className="text-[#64748b] block">Movimiento propio:</span>
-                          <span className="text-white">
-                            pmRA: {item.pmRa.toFixed(1)} mas/a · pmDE: {item.pmDec.toFixed(1)} mas/a
+                          <span style={{ color: 'var(--mute)', display: 'block' }}>Movimiento propio:</span>
+                          <span>
+                            pmRA: {item.pmRa.toFixed(1)} · pmDE: {item.pmDec.toFixed(1)} mas/a
                           </span>
                         </div>
                         <div>
-                          <span className="text-[#64748b] block">Tipo de objeto SIMBAD:</span>
-                          <span className="text-white">{item.kindCode} ({item.kindLabel})</span>
+                          <span style={{ color: 'var(--mute)', display: 'block' }}>Tipo de objeto SIMBAD:</span>
+                          <span>{item.kindCode} ({item.kindLabel})</span>
                         </div>
                         <div>
-                          <span className="text-[#64748b] block">Color infrarrojo W1−W2:</span>
-                          <span className="text-white">
+                          <span style={{ color: 'var(--mute)', display: 'block' }}>Color infrarrojo W1−W2:</span>
+                          <span>
                             {item.w1MinusW2 !== undefined ? `${item.w1MinusW2.toFixed(2)} mag` : 'No medido'}
                           </span>
                         </div>

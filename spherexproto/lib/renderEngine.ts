@@ -291,14 +291,16 @@ export function renderScientificFrame(opts: RenderEngineOptions): {
     // Center handle pill
     g.fillStyle = '#ffffff';
     g.beginPath();
-    g.arc(splitX, canvasHeight / 2, 14, 0, 2 * Math.PI);
+    g.arc(splitX, canvasHeight / 2, 12, 0, 2 * Math.PI);
     g.fill();
 
-    g.fillStyle = '#07090f';
-    g.font = 'bold 12px Inter, system-ui, sans-serif';
-    g.textAlign = 'center';
-    g.textBaseline = 'middle';
-    g.fillText('↔', splitX, canvasHeight / 2);
+    // Líneas de agarre mecánicas (sin emojis)
+    g.strokeStyle = '#0c0d12';
+    g.lineWidth = 1.5;
+    g.beginPath();
+    g.moveTo(splitX - 3, canvasHeight / 2 - 5); g.lineTo(splitX - 3, canvasHeight / 2 + 5);
+    g.moveTo(splitX + 3, canvasHeight / 2 - 5); g.lineTo(splitX + 3, canvasHeight / 2 + 5);
+    g.stroke();
 
     // Labels left & right
     g.fillStyle = 'rgba(7, 9, 15, 0.85)';
@@ -333,31 +335,40 @@ export function renderScientificFrame(opts: RenderEngineOptions): {
       const cy = ((p0.y + p3.y) / 2) * scale;
       const rBox = Math.max(26, (pxDist * scale) / 2 + 14);
 
-      // Amber dashed detection box
-      g.strokeStyle = '#facc15';
-      g.lineWidth = 2;
-      g.setLineDash([5, 4]);
+      // Detection ring in alert color
+      g.strokeStyle = '#ff6b35';
+      g.lineWidth = 1.8;
+      g.setLineDash([4, 3]);
       g.beginPath();
       g.arc(cx, cy, rBox, 0, 2 * Math.PI);
       g.stroke();
       g.setLineDash([]);
 
-      // Auto-hunter tag
-      g.fillStyle = 'rgba(7, 9, 15, 0.9)';
-      g.fillRect(cx - 95, cy - rBox - 28, 190, 24);
-      g.strokeStyle = '#facc15';
-      g.strokeRect(cx - 95, cy - rBox - 28, 190, 24);
+      // Cross-match with cone candidates
+      const matchingCandidate = coneResults.find(
+        (c) => c.pmArcsecPerYear > 0.05 || c.isColdCandidate
+      );
+      const tagText = matchingCandidate
+        ? `Candidato: coincide con ${matchingCandidate.name} (${matchingCandidate.kindLabel})`
+        : 'Candidato a objeto en movimiento';
 
-      g.fillStyle = '#facc15';
-      g.font = 'bold 10px Inter, system-ui, sans-serif';
+      const tagWidth = Math.max(170, tagText.length * 6.2);
+      g.fillStyle = 'rgba(10, 11, 16, 0.92)';
+      g.fillRect(cx - tagWidth / 2, cy - rBox - 26, tagWidth, 22);
+      g.strokeStyle = '#ff6b35';
+      g.lineWidth = 1;
+      g.strokeRect(cx - tagWidth / 2, cy - rBox - 26, tagWidth, 22);
+
+      g.fillStyle = '#ff6b35';
+      g.font = '600 10px Inter, system-ui, sans-serif';
       g.textAlign = 'center';
       g.textBaseline = 'middle';
-      g.fillText('★ Candidato a objeto móvil', cx, cy - rBox - 16);
+      g.fillText(tagText, cx, cy - rBox - 15);
 
       // Displacement metric
-      g.fillStyle = '#ffffff';
-      g.font = '600 10px Inter, system-ui, sans-serif';
-      g.fillText(`Desplazamiento: ${arcsecDist.toFixed(1)}″`, cx, cy + rBox + 14);
+      g.fillStyle = 'rgba(255, 255, 255, 0.9)';
+      g.font = '500 10px Inter, system-ui, sans-serif';
+      g.fillText(`Desplazamiento dipolo: ~${arcsecDist.toFixed(1)}″`, cx, cy + rBox + 14);
     }
   }
 
@@ -371,103 +382,158 @@ export function renderScientificFrame(opts: RenderEngineOptions): {
     const sx = currPx.x * scale;
     const sy = currPx.y * scale;
 
-    if (gaiaM) {
-      const gx = gaiaM.pixelX * scale;
-      const gy = gaiaM.pixelY * scale;
+    const gx = gaiaM ? gaiaM.pixelX * scale : null;
+    const gy = gaiaM ? gaiaM.pixelY * scale : null;
+    const wx = wiseM ? wiseM.pixelX * scale : null;
+    const wy = wiseM ? wiseM.pixelY * scale : null;
 
-      // Draw dashed vector arrow from Gaia 2016 to current SPHEREx position
-      g.strokeStyle = 'rgba(106, 167, 255, 0.6)';
-      g.lineWidth = 1.5;
-      g.setLineDash([4, 4]);
-      g.beginPath();
+    // Draw dashed flight path from historical epochs to SPHEREx
+    g.strokeStyle = 'rgba(255, 107, 53, 0.6)';
+    g.lineWidth = 1.4;
+    g.setLineDash([3, 3]);
+    g.beginPath();
+    if (gx !== null && gy !== null) {
       g.moveTo(gx, gy);
+      if (wx !== null && wy !== null) {
+        g.lineTo(wx, wy);
+        g.lineTo(sx, sy);
+      } else {
+        g.lineTo(sx, sy);
+      }
+    } else if (wx !== null && wy !== null) {
+      g.moveTo(wx, wy);
       g.lineTo(sx, sy);
-      g.stroke();
-      g.setLineDash([]);
-
-      // Calculate total arcsecond movement since Gaia 2016 (9.5 - 10.5 years)
-      const elapsedY = 2026.0 - 2016.0;
-      const pmRa = currF.movingTargetPixel ? ((targetName.includes('WISE') ? 8150 : 10362) / 1000.0) : 0;
-      const totalMovedArcsec = (pmRa * elapsedY).toFixed(1);
-
-      // Historical movement badge
-      g.fillStyle = 'rgba(7, 9, 15, 0.88)';
-      g.fillRect(12, canvasHeight - 34, 185, 22);
-      g.strokeStyle = 'rgba(106, 167, 255, 0.4)';
-      g.strokeRect(12, canvasHeight - 34, 185, 22);
-
-      g.fillStyle = '#6aa7ff';
-      g.font = '600 10px Inter, system-ui, sans-serif';
-      g.textAlign = 'left';
-      g.textBaseline = 'middle';
-      g.fillText(`Desde 2016 se movió ~${totalMovedArcsec}″`, 18, canvasHeight - 23);
     }
+    g.stroke();
+    g.setLineDash([]);
+
+    // Directional arrowhead pointing to current SPHEREx position
+    const prevX = wx !== null ? wx : gx;
+    const prevY = wy !== null ? wy : gy;
+    if (prevX !== null && prevY !== null && Math.hypot(sx - prevX, sy - prevY) > 4) {
+      const angle = Math.atan2(sy - prevY, sx - prevX);
+      const arrowLen = 8;
+      g.fillStyle = '#ff6b35';
+      g.beginPath();
+      g.moveTo(sx, sy);
+      g.lineTo(sx - arrowLen * Math.cos(angle - Math.PI / 6), sy - arrowLen * Math.sin(angle - Math.PI / 6));
+      g.lineTo(sx - arrowLen * Math.cos(angle + Math.PI / 6), sy - arrowLen * Math.sin(angle + Math.PI / 6));
+      g.closePath();
+      g.fill();
+    }
+
+    // Unified corner legend (bottom-left)
+    g.fillStyle = 'rgba(10, 11, 16, 0.9)';
+    g.fillRect(10, canvasHeight - 34, 205, 22);
+    g.strokeStyle = 'rgba(255, 255, 255, 0.12)';
+    g.lineWidth = 1;
+    g.strokeRect(10, canvasHeight - 34, 205, 22);
+
+    // Gaia (+)
+    g.strokeStyle = '#5b9aff';
+    g.lineWidth = 1.4;
+    g.beginPath();
+    g.moveTo(16, canvasHeight - 23); g.lineTo(24, canvasHeight - 23);
+    g.moveTo(20, canvasHeight - 27); g.lineTo(20, canvasHeight - 19);
+    g.stroke();
+    g.fillStyle = '#5b9aff';
+    g.font = '500 10px Inter, system-ui, sans-serif';
+    g.textAlign = 'left';
+    g.textBaseline = 'middle';
+    g.fillText('Gaia (2016)', 28, canvasHeight - 23);
+
+    // WISE (◇)
+    g.strokeStyle = '#ff9a3c';
+    g.beginPath();
+    g.moveTo(96, canvasHeight - 23); g.lineTo(100, canvasHeight - 27);
+    g.lineTo(104, canvasHeight - 23); g.lineTo(100, canvasHeight - 19);
+    g.closePath();
+    g.stroke();
+    g.fillStyle = '#ff9a3c';
+    g.fillText('WISE (2020)', 108, canvasHeight - 23);
+
+    // SPHEREx (●)
+    g.fillStyle = '#ff6b35';
+    g.beginPath();
+    g.arc(176, canvasHeight - 23, 3, 0, 2 * Math.PI);
+    g.fill();
+    g.fillText('2026', 182, canvasHeight - 23);
   }
 
   // D. Search Radius Circle from Cone Search
   if (showConeOverlays && coneRadiusArcmin > 0 && (coneResults.length > 0 || isConeSearchOpen)) {
     const pxRadius = (coneRadiusArcmin / fovArcmin) * canvasWidth;
     if (pxRadius > 15) {
-      g.strokeStyle = 'rgba(79, 209, 165, 0.45)';
-      g.lineWidth = 1.5;
-      g.setLineDash([6, 6]);
+      g.strokeStyle = 'rgba(255, 255, 255, 0.22)';
+      g.lineWidth = 1.2;
+      g.setLineDash([4, 4]);
       g.beginPath();
       g.arc(canvasWidth / 2, canvasHeight / 2, pxRadius, 0, 2 * Math.PI);
       g.stroke();
       g.setLineDash([]);
 
       if (pxRadius > 35 && pxRadius < canvasWidth * 0.48) {
-        g.fillStyle = 'rgba(79, 209, 165, 0.85)';
-        g.font = '600 11px Inter, system-ui, sans-serif';
+        g.fillStyle = 'rgba(255, 255, 255, 0.6)';
+        g.font = '500 10px Inter, system-ui, sans-serif';
         g.textAlign = 'center';
         g.fillText(`Radio: ${coneRadiusArcmin}′`, canvasWidth / 2, Math.max(16, (canvasHeight / 2) - pxRadius - 6));
       }
     }
   }
 
-  // E. Cone Search Numbered Result Markers
+  // E. Cone Search Numbered Result Markers on Visor
   if (showConeOverlays && coneResults.length > 0) {
     const cosDec = Math.cos((wcs.crval[1] * Math.PI) / 180.0);
     const safeCosDec = Math.abs(cosDec) > 0.05 ? cosDec : 0.05;
     const pxPerArcmin = canvasWidth / fovArcmin;
 
-    coneResults.slice(0, 20).forEach((item) => {
-      const dRaArcmin = (item.ra - wcs.crval[0]) * safeCosDec * 60.0;
+    coneResults.slice(0, 25).forEach((item) => {
+      // Angular separation in arcminutes relative to center (East on left)
+      const dRaArcmin = (wcs.crval[0] - item.ra) * safeCosDec * 60.0;
       const dDecArcmin = (item.dec - wcs.crval[1]) * 60.0;
-      const mx = (canvasWidth / 2) - dRaArcmin * pxPerArcmin;
+      const mx = (canvasWidth / 2) + dRaArcmin * pxPerArcmin;
       const my = (canvasHeight / 2) - dDecArcmin * pxPerArcmin;
 
-      if (Math.hypot(mx - (canvasWidth / 2), my - (canvasHeight / 2)) < 16) return;
+      if (Math.hypot(mx - (canvasWidth / 2), my - (canvasHeight / 2)) < 18) return;
 
-      if (mx >= 12 && mx <= canvasWidth - 12 && my >= 12 && my <= canvasHeight - 12) {
-        g.strokeStyle = 'rgba(79, 209, 165, 0.9)';
-        g.lineWidth = 1.5;
+      if (mx >= 14 && mx <= canvasWidth - 14 && my >= 14 && my <= canvasHeight - 14) {
+        const isMover = item.isColdCandidate || item.pmArcsecPerYear >= 0.20;
+        const color = isMover ? '#ff6b35' : item.kindCode.startsWith('V') ? '#eab308' : 'rgba(255, 255, 255, 0.65)';
+
+        // Reticle ring
+        g.strokeStyle = color;
+        g.lineWidth = 1.2;
         g.beginPath();
-        g.arc(mx, my, 11, 0, 2 * Math.PI);
+        g.arc(mx, my, 8, 0, 2 * Math.PI);
         g.stroke();
 
-        g.fillStyle = 'rgba(7, 9, 15, 0.92)';
+        // Background pill
+        g.fillStyle = 'rgba(10, 11, 16, 0.85)';
         g.beginPath();
-        g.arc(mx, my, 10, 0, 2 * Math.PI);
+        g.arc(mx, my, 7, 0, 2 * Math.PI);
         g.fill();
 
-        g.fillStyle = '#ffffff';
-        g.font = 'bold 10px Inter, system-ui, sans-serif';
+        // Number
+        g.fillStyle = color;
+        g.font = '700 9px Inter, system-ui, sans-serif';
         g.textAlign = 'center';
         g.textBaseline = 'middle';
         g.fillText(String(item.number), mx, my);
 
-        g.fillStyle = '#4fd1a5';
-        g.font = '600 10px Inter, system-ui, sans-serif';
-        g.textAlign = 'left';
+        // Name
+        g.fillStyle = 'rgba(255, 255, 255, 0.75)';
+        g.font = '500 9px Inter, system-ui, sans-serif';
+        g.textAlign = mx > canvasWidth / 2 ? 'right' : 'left';
         g.textBaseline = 'middle';
+        const labelX = mx > canvasWidth / 2 ? mx - 12 : mx + 12;
         const shortName = item.name.length > 14 ? item.name.slice(0, 12) + '…' : item.name;
-        g.fillText(shortName, mx + 14, my);
+        g.fillText(shortName, labelX, my);
       }
     });
   }
 
   // F. Catalog Markers Cross-Identification (Gaia DR3 & CatWISE2020)
+  // Regla de diseño: símbolos mínimos (cruz y rombo) y una leyenda ÚNICA en la esquina, sin textos pegados a cada punto
   if (showCatalogOverlays && highlight && catalogMarkers.length > 0) {
     catalogMarkers.forEach((m) => {
       const cx = m.pixelX * scale;
@@ -481,28 +547,56 @@ export function renderScientificFrame(opts: RenderEngineOptions): {
         g.lineWidth = 1.5;
 
         g.beginPath();
-        g.arc(cx, cy, 7, 0, 2 * Math.PI);
-        g.stroke();
-
-        g.beginPath();
         if (isGaia) {
-          g.moveTo(cx - 10, cy); g.lineTo(cx + 10, cy);
-          g.moveTo(cx, cy - 10); g.lineTo(cx, cy + 10);
+          // Cruz mínima para Gaia DR3
+          g.moveTo(cx - 5, cy); g.lineTo(cx + 5, cy);
+          g.moveTo(cx, cy - 5); g.lineTo(cx, cy + 5);
         } else {
-          g.moveTo(cx - 7, cy - 7); g.lineTo(cx + 7, cy + 7);
-          g.moveTo(cx + 7, cy - 7); g.lineTo(cx - 7, cy + 7);
+          // Rombo mínimo para CatWISE2020
+          g.moveTo(cx, cy - 5);
+          g.lineTo(cx + 5, cy);
+          g.lineTo(cx, cy + 5);
+          g.lineTo(cx - 5, cy);
+          g.closePath();
         }
         g.stroke();
-
-        g.fillStyle = color;
-        g.font = '600 10px Inter, system-ui, sans-serif';
-        g.textAlign = 'left';
-        g.fillText(isGaia ? 'Gaia DR3 (2016)' : 'WISE (2020)', cx + 11, cy + 3);
       }
     });
+
+    // Leyenda ÚNICA en la esquina inferior izquierda (sin colisiones)
+    g.fillStyle = 'rgba(12, 13, 18, 0.88)';
+    g.fillRect(10, canvasHeight - 32, 175, 22);
+    g.strokeStyle = 'rgba(255, 255, 255, 0.12)';
+    g.lineWidth = 1;
+    g.strokeRect(10, canvasHeight - 32, 175, 22);
+
+    // Símbolo cruz Gaia
+    g.strokeStyle = '#6aa7ff';
+    g.lineWidth = 1.5;
+    g.beginPath();
+    g.moveTo(16, canvasHeight - 21); g.lineTo(24, canvasHeight - 21);
+    g.moveTo(20, canvasHeight - 25); g.lineTo(20, canvasHeight - 17);
+    g.stroke();
+
+    g.fillStyle = '#6aa7ff';
+    g.font = '500 10px Inter, system-ui, sans-serif';
+    g.textAlign = 'left';
+    g.textBaseline = 'middle';
+    g.fillText('Gaia (2016)', 28, canvasHeight - 21);
+
+    // Símbolo rombo CatWISE
+    g.strokeStyle = '#ff9a3c';
+    g.beginPath();
+    g.moveTo(96, canvasHeight - 21); g.lineTo(100, canvasHeight - 25);
+    g.lineTo(104, canvasHeight - 21); g.lineTo(100, canvasHeight - 17);
+    g.closePath();
+    g.stroke();
+
+    g.fillStyle = '#ff9a3c';
+    g.fillText('WISE (2020)', 108, canvasHeight - 21);
   }
 
-  // G. Moving / Variable Target Tracking Indicator
+  // G. Moving / Variable Target Tracking Indicator — SEÑALADO COMO UN ASTRÓNOMO (LÁPIZ GRASO)
   const f0 = frames.find((f) => f.epochIndex === 0)?.movingTargetPixel || { x: size / 2, y: size / 2 };
   const f3 = frames.find((f) => f.epochIndex === 3)?.movingTargetPixel || { x: size / 2, y: size / 2 };
 
@@ -510,77 +604,81 @@ export function renderScientificFrame(opts: RenderEngineOptions): {
   const interpX = (f0.x + (f3.x - f0.x) * interpT) * scale;
   const interpY = (f0.y + (f3.y - f0.y) * interpT) * scale;
 
-  if (targetType === 'var') {
-    const cx = canvasWidth / 2;
-    const cy = canvasHeight / 2;
+  if (highlight && !curtainEnabled) {
+    const cx = targetType === 'var' ? canvasWidth / 2 : interpX;
+    const cy = targetType === 'var' ? canvasHeight / 2 : interpY;
 
-    if (highlight) {
-      g.strokeStyle = '#d44f6e';
-      g.lineWidth = 2;
-      g.setLineDash([5, 5]);
-      g.beginPath();
-      g.arc(cx, cy, 38, 0, 2 * Math.PI);
-      g.stroke();
-      g.setLineDash([]);
+    // Círculo irregular a mano alzada en color de alerta (cera roja de Clyde Tombaugh / Henrietta Leavitt)
+    g.save();
+    g.strokeStyle = '#ff6b35';
+    g.lineWidth = 1.8;
+    g.lineCap = 'round';
+    g.lineJoin = 'round';
 
-      g.fillStyle = '#f07a94';
-      g.font = '600 14px Inter, system-ui, sans-serif';
-      g.textAlign = 'left';
-      g.textBaseline = 'alphabetic';
-      g.fillText(targetName, cx + 46, cy - 10);
+    const r = targetType === 'var' ? 24 : 18;
+    const points: { x: number; y: number }[] = [];
+    const startAngle = 3.14; // ~180°
+    const totalAngle = 2 * Math.PI + 0.45; // ~405° vuelta con solape natural
+    const steps = 18;
 
-      g.fillStyle = '#a8a4cb';
-      g.font = '500 11px Inter, system-ui, sans-serif';
-      g.fillText('Flujo variable en 4 épocas', cx + 46, cy + 6);
+    for (let i = 0; i <= steps; i++) {
+      const a = startAngle + (i / steps) * totalAngle;
+      const wobble = Math.sin(a * 3) * 1.7 + Math.cos(a * 5) * 1.1;
+      const curR = r + wobble;
+      points.push({
+        x: cx + Math.cos(a) * curR,
+        y: cy + Math.sin(a) * curR * 0.94,
+      });
     }
-  } else {
-    if (highlight && !curtainEnabled) {
-      g.strokeStyle = 'rgba(212, 79, 110, 0.6)';
-      g.lineWidth = 1.5;
-      g.setLineDash([4, 6]);
-      g.beginPath();
 
-      for (let ep = 0; ep < 4; ep++) {
-        const epFrame = frames.find((f) => f.epochIndex === ep);
-        const pt = epFrame?.movingTargetPixel || { x: size / 2, y: size / 2 };
-        const px = pt.x * scale;
-        const py = pt.y * scale;
+    g.beginPath();
+    g.moveTo(points[0].x, points[0].y);
+    for (let i = 1; i < points.length; i++) {
+      const prev = points[i - 1];
+      const curr = points[i];
+      const mx = (prev.x + curr.x) / 2;
+      const my = (prev.y + curr.y) / 2;
+      g.quadraticCurveTo(prev.x, prev.y, mx, my);
+    }
+    g.stroke();
 
-        if (ep === 0) g.moveTo(px, py);
-        else g.lineTo(px, py);
-      }
-      g.stroke();
-      g.setLineDash([]);
+    // Nota breve manuscrita al lado (serif en cursiva auténtica de cuaderno de campo)
+    let noteText = '';
+    if (targetName.includes('WISE 0855') || targetName.includes('0855')) {
+      noteText = 'se mueve 8,1″/año';
+    } else if (targetName.includes('Barnard')) {
+      noteText = 'se mueve 10,36″/año';
+    } else if (targetName.includes('Luhman')) {
+      noteText = 'pareja binaria · 2,8″/año';
+    } else if (targetName.includes('RW Aur')) {
+      noteText = 'eclipses de polvo';
+    } else if (targetName.includes('Mira')) {
+      noteText = 'periodo 332 d';
+    } else if (targetName.includes('TRAPPIST')) {
+      noteText = 'se mueve 1,2″/año';
+    } else if (targetType === 'var') {
+      noteText = 'cambia de brillo';
+    } else {
+      noteText = 'se mueve';
+    }
 
-      for (let ep = 0; ep < 4; ep++) {
-        const epFrame = frames.find((f) => f.epochIndex === ep);
-        const pt = epFrame?.movingTargetPixel || { x: size / 2, y: size / 2 };
-        const px = pt.x * scale;
-        const py = pt.y * scale;
+    g.font = 'italic 13px "Newsreader", "Playfair Display", Georgia, serif';
+    g.fillStyle = '#ff6b35';
+    g.textAlign = 'left';
+    g.textBaseline = 'middle';
+    // Colocar la anotación manuscrita justo arriba del objeto señalado (cuaderno de campo)
+    const noteX = Math.max(12, Math.min(canvasWidth - 140, cx - 24));
+    const noteY = Math.max(20, cy - r - 10);
+    g.fillText(noteText, noteX, noteY);
 
-        g.fillStyle = ep === epochIdx ? '#d44f6e' : 'rgba(212, 79, 110, 0.35)';
-        g.beginPath();
-        g.arc(px, py, ep === epochIdx ? 4 : 2.5, 0, 2 * Math.PI);
-        g.fill();
-      }
+    g.restore();
 
-      g.strokeStyle = '#d44f6e';
-      g.lineWidth = 2;
-      g.beginPath();
-      g.arc(interpX, interpY, targetType === 'pair' ? 32 : 24, 0, 2 * Math.PI);
-      g.stroke();
-
-      g.fillStyle = '#f07a94';
-      g.font = '600 14px Inter, system-ui, sans-serif';
+    // Si además es modo diferencia y objeto móvil, anotación técnica discreta
+    if (mode === 'diff' && targetType !== 'var') {
+      g.fillStyle = '#38bdf8';
+      g.font = '500 10px Inter, system-ui, sans-serif';
       g.textAlign = 'left';
-      g.textBaseline = 'alphabetic';
-      g.fillText(targetName, interpX + 32, interpY - 14);
-
-      if (mode === 'diff') {
-        g.fillStyle = '#38bdf8';
-        g.font = '500 11px Inter, system-ui, sans-serif';
-        g.fillText('Par Dipolo (Cyan = Época ref / Rojo = Época actual)', interpX + 32, interpY + 4);
-      }
+      g.fillText('Par Dipolo (Cyan / Rojo)', interpX + 28, interpY + 18);
     }
   }
 

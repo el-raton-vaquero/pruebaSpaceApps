@@ -20,6 +20,7 @@ import {
   ConeResult,
   ConeFilterType,
   propagateEpoch,
+  mockConeSearch,
   formatMovementSpeed,
   formatSeparation,
 } from '../lib/coneSearch';
@@ -156,7 +157,7 @@ const BAND_COLORS = ['#6aa7ff', '#4fd1a5', '#ffd34f', '#ff9a3c', '#d44f6e', '#b0
 /* ============================================================ */
 
 export default function Home() {
-  const [view, setView] = useState<'landing' | 'viewer'>('landing');
+  const [view, setView] = useState<'landing' | 'viewer'>('viewer');
   const [locale, setLocale] = useState<Locale>('es');
   const t = DICTIONARY[locale];
 
@@ -171,6 +172,8 @@ export default function Home() {
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [searchMessage, setSearchMessage] = useState<string>('');
   const [isSearching, setIsSearching] = useState<boolean>(false);
+  const [isSearchOpen, setIsSearchOpen] = useState<boolean>(false);
+  const searchInputRef = useRef<HTMLInputElement | null>(null);
   const [copiedLink, setCopiedLink] = useState<boolean>(false);
   const [isEmbed, setIsEmbed] = useState<boolean>(false);
 
@@ -198,7 +201,13 @@ export default function Home() {
   const [isRetoOpen, setIsRetoOpen] = useState<boolean>(false);
   const [isTourOpen, setIsTourOpen] = useState<boolean>(false);
   const [isConeSearchOpen, setIsConeSearchOpen] = useState<boolean>(false);
-  const [coneResults, setConeResults] = useState<ConeResult[]>([]);
+  const [coneResults, setConeResults] = useState<ConeResult[]>(() => {
+    try {
+      return mockConeSearch({ ra: OBJ.wise0855.ra, dec: OBJ.wise0855.dec, radiusArcmin: 10 });
+    } catch {
+      return [];
+    }
+  });
   const [coneRadius, setConeRadius] = useState<number>(10);
   const [coneFilters, setConeFilters] = useState<ConeFilterType[]>(['all']);
   const [showConeOverlays, setShowConeOverlays] = useState<boolean>(true);
@@ -360,6 +369,11 @@ export default function Home() {
   const handleSelectConeResult = (item: ConeResult) => {
     // FASE 4: Recentrar en la posición predicha para la época de SPHEREx (2026.0)
     const predicted = propagateEpoch(item.ra, item.dec, item.pmRa, item.pmDec, 2026.0, 2016.0);
+    const displacementArcsec = Math.hypot(
+      ((item.pmRa * (2026.0 - 2016.0)) / 1000.0),
+      ((item.pmDec * (2026.0 - 2016.0)) / 1000.0)
+    );
+    const isOutsideCutout = item.sepArcsec > (fov * 60.0) / 2.0;
 
     const presetKey = Object.keys(OBJ).find(
       (k) => OBJ[k].n.toLowerCase() === item.name.toLowerCase() ||
@@ -408,6 +422,14 @@ export default function Home() {
       setPlaying(true);
     }
 
+    // Feedback al usuario sobre la propagación y cobertura
+    if (isOutsideCutout) {
+      setSearchMessage(`Recentrado a ${item.name} (${predicted.ra.toFixed(4)}°, ${predicted.dec.toFixed(4)}°): estaba fuera del recorte previo (${formatSeparation(item.sepArcsec)} del centro). Nuevo campo de SPHEREx cargado.`);
+    } else {
+      setSearchMessage(`Recentrado en la posición predicha para SPHEREx 2026.0 (${displacementArcsec > 0.05 ? `desplazamiento acumulado: ${displacementArcsec.toFixed(1)}″` : 'coordenadas calibradas'}).`);
+    }
+    setTimeout(() => setSearchMessage(''), 7000);
+
     if (typeof window !== 'undefined') {
       const fSlug = coneFilters.includes('fast') ? 'rapidos'
         : coneFilters.includes('browndwarf') ? 'enanas'
@@ -423,6 +445,8 @@ export default function Home() {
     setAutoHunterEnabled(true);
     setBlinkMode(true);
     setIsConeSearchOpen(false);
+    setSearchMessage('Cazador automático activo: comparando épocas por diferencia de flujo y cruzando con candidatos del cono.');
+    setTimeout(() => setSearchMessage(''), 7000);
   }, []);
 
   const handleResultsChange = useCallback((results: ConeResult[], rad: number) => {
@@ -545,10 +569,22 @@ export default function Home() {
     return () => cancelAnimationFrame(animId);
   }, [view, playing, blinkMode, blinkHz, curtainEnabled]);
 
-  /* ---- Keyboard Shortcuts Completo (Space, B, D, C, H, Arrows) ---- */
+  /* ---- Keyboard Shortcuts Completo (Space, B, D, C, H, Arrows, /, Esc) ---- */
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setIsSearchOpen(false);
+        (e.target as HTMLElement)?.blur?.();
+        return;
+      }
       if (['INPUT', 'TEXTAREA'].includes((e.target as HTMLElement)?.tagName)) return;
+
+      if (e.key === '/') {
+        e.preventDefault();
+        setIsSearchOpen(true);
+        setTimeout(() => searchInputRef.current?.focus(), 40);
+        return;
+      }
 
       if (e.code === 'Space') {
         e.preventDefault();
@@ -742,7 +778,11 @@ export default function Home() {
   const copyShareLink = () => {
     if (typeof window !== 'undefined') {
       const modeParam = displayMode !== 'normal' ? `&mode=${displayMode}` : '';
-      const shareUrl = `${window.location.origin}/?ra=${target.ra.toFixed(4)}&dec=${target.dec.toFixed(4)}&fov=${fov}&lang=${locale}${modeParam}#${key}`;
+      const fSlug = coneFilters.includes('fast') ? 'rapidos'
+        : coneFilters.includes('browndwarf') ? 'enanas'
+        : coneFilters.includes('variable') ? 'variables'
+        : 'todos';
+      const shareUrl = `${window.location.origin}/?ra=${target.ra.toFixed(4)}&dec=${target.dec.toFixed(4)}&r=${coneRadius}&f=${fSlug}&sel=${encodeURIComponent(key)}&fov=${fov}&lang=${locale}${modeParam}#${key}`;
       navigator.clipboard.writeText(shareUrl);
       setCopiedLink(true);
       setTimeout(() => setCopiedLink(false), 2000);
@@ -767,6 +807,7 @@ export default function Home() {
           onOpenConeSearch={() => { setView('viewer'); setIsConeSearchOpen(true); }}
           isSearching={isSearching}
           searchMessage={searchMessage}
+          locale={locale}
         />
       ) : (
         /* ============ VISOR CIENTÍFICO (Fase 1, 2 y 3) ============ */
@@ -775,11 +816,11 @@ export default function Home() {
           {!isEmbed && (
             <header
               style={{
-                height: 'var(--header-h)',
+                height: 50,
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'space-between',
-                gap: 10,
+                gap: 12,
                 padding: '0 16px',
                 borderBottom: '1px solid var(--line)',
                 backgroundColor: 'var(--panel)',
@@ -790,7 +831,7 @@ export default function Home() {
                 flexShrink: 0,
               }}
             >
-              {/* Volver / Logo */}
+              {/* Volver y nombre del objeto en serif */}
               <button
                 onClick={() => { setView('landing'); if (typeof window !== 'undefined') history.replaceState(null, '', ' '); }}
                 style={{
@@ -801,68 +842,120 @@ export default function Home() {
                   border: 'none',
                   cursor: 'pointer',
                   color: 'var(--ink)',
-                  fontFamily: 'var(--font-body)',
                   padding: '4px 0',
-                  flexShrink: 0,
+                  flexShrink: 1,
+                  minWidth: 0,
                 }}
                 title={t.backToHome}
               >
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" aria-hidden="true">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" aria-hidden="true" style={{ flexShrink: 0 }}>
                   <path d="M19 12H5M12 5l-7 7 7 7"/>
                 </svg>
                 <span
                   style={{
                     fontFamily: 'var(--font-display)',
-                    fontSize: '1rem',
+                    fontSize: 'clamp(1rem, 3.6vw, 1.25rem)',
                     fontWeight: 400,
-                    display: 'none',
+                    color: 'var(--ink)',
+                    letterSpacing: '-0.01em',
+                    whiteSpace: 'nowrap',
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
                   }}
-                  className="sm-show"
                 >
-                  SPHEREx Time Machine
+                  {target.n}
                 </span>
               </button>
 
-              {/* Buscador */}
-              <form
-                onSubmit={(e) => { e.preventDefault(); handleSearch(searchQuery); }}
-                style={{ flex: 1, maxWidth: 300, display: 'flex', alignItems: 'center', gap: 6 }}
-              >
-                <input
-                  type="text"
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  placeholder={t.searchPlaceholder}
-                  style={{
-                    flex: 1,
-                    padding: '5px 12px',
-                    borderRadius: 6,
-                    border: '1px solid var(--line)',
-                    background: 'var(--panel-raised)',
-                    color: 'var(--ink)',
-                    fontFamily: 'var(--font-body)',
-                    fontSize: 'var(--text-caption)',
-                    outline: 'none',
-                    minWidth: 0,
-                  }}
-                  onFocus={(e) => (e.target.style.borderColor = 'var(--acc)')}
-                  onBlur={(e) => (e.target.style.borderColor = 'var(--line)')}
-                />
-              </form>
-
-              {/* Acciones derechas */}
+              {/* Acciones derechas: Buscador discreto, Vecindario, Idioma y Compartir */}
               <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
+                {/* Buscador discreto (con atajo "/" y Esc) */}
+                {isSearchOpen ? (
+                  <form
+                    onSubmit={(e) => { e.preventDefault(); handleSearch(searchQuery); }}
+                    style={{ display: 'flex', alignItems: 'center', gap: 6 }}
+                  >
+                    <input
+                      ref={searchInputRef}
+                      type="text"
+                      value={searchQuery}
+                      onChange={(e) => setSearchQuery(e.target.value)}
+                      placeholder={t.searchPlaceholder}
+                      style={{
+                        width: 180,
+                        padding: '4px 8px',
+                        borderRadius: 'var(--radius-sm, 4px)',
+                        border: '1px solid var(--line)',
+                        background: 'var(--panel-raised)',
+                        color: 'var(--ink)',
+                        fontSize: 'var(--text-caption)',
+                        outline: 'none',
+                      }}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setIsSearchOpen(false)}
+                      style={{ background: 'none', border: 'none', color: 'var(--mute)', cursor: 'pointer', padding: 2, fontSize: '0.8rem' }}
+                      title="Cerrar (Esc)"
+                    >
+                      ✕
+                    </button>
+                  </form>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsSearchOpen(true);
+                      setTimeout(() => searchInputRef.current?.focus(), 40);
+                    }}
+                    className="btn-ghost"
+                    title={t.searchShortcutTooltip}
+                    style={{ padding: '4px 7px', fontSize: 'var(--text-data)', display: 'flex', alignItems: 'center', gap: 4 }}
+                  >
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      <circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/>
+                    </svg>
+                    <kbd style={{ fontSize: '0.65rem', padding: '1px 4px', borderRadius: 2, border: '1px solid var(--line)', background: 'var(--panel-raised)', color: 'var(--mute)' }}>/</kbd>
+                  </button>
+                )}
+
+                {/* Explorar Vecindario */}
+                <button
+                  onClick={() => setIsConeSearchOpen(true)}
+                  className="btn-ghost"
+                  title={t.exploreConeBtn}
+                  style={{ fontSize: 'var(--text-data)', padding: '4px 8px', display: 'flex', alignItems: 'center', gap: 5 }}
+                >
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/>
+                  </svg>
+                  <span className="sm-show">{t.neighborhoodBtn}</span>
+                  {coneResults.length > 0 && (
+                    <span style={{
+                      padding: '1px 5px',
+                      borderRadius: 10,
+                      background: 'rgba(255, 107, 53, 0.15)',
+                      color: 'var(--alert)',
+                      fontSize: '0.68rem',
+                      fontWeight: 700,
+                      fontVariantNumeric: 'tabular-nums',
+                    }}>
+                      {coneResults.length}
+                    </span>
+                  )}
+                </button>
+
                 {/* Selector Bilingüe ES / EN */}
-                <div style={{ display: 'flex', border: '1px solid var(--line)', borderRadius: 6, overflow: 'hidden' }}>
+                <div style={{ display: 'flex', border: '1px solid var(--line)', borderRadius: 'var(--radius-sm, 4px)', overflow: 'hidden' }}>
                   <button
                     type="button"
                     onClick={() => setLocale('es')}
                     style={{
                       padding: '3px 7px',
                       fontSize: '0.72rem',
-                      fontWeight: 700,
-                      background: locale === 'es' ? 'var(--acc)' : 'transparent',
-                      color: locale === 'es' ? '#fff' : 'var(--mute)',
+                      fontWeight: locale === 'es' ? 700 : 400,
+                      background: locale === 'es' ? 'var(--panel-raised)' : 'transparent',
+                      color: locale === 'es' ? 'var(--ink)' : 'var(--mute)',
                       border: 'none',
                       cursor: 'pointer',
                     }}
@@ -875,9 +968,9 @@ export default function Home() {
                     style={{
                       padding: '3px 7px',
                       fontSize: '0.72rem',
-                      fontWeight: 700,
-                      background: locale === 'en' ? 'var(--acc)' : 'transparent',
-                      color: locale === 'en' ? '#fff' : 'var(--mute)',
+                      fontWeight: locale === 'en' ? 700 : 400,
+                      background: locale === 'en' ? 'var(--panel-raised)' : 'transparent',
+                      color: locale === 'en' ? 'var(--ink)' : 'var(--mute)',
                       border: 'none',
                       cursor: 'pointer',
                     }}
@@ -886,59 +979,18 @@ export default function Home() {
                   </button>
                 </div>
 
-                {/* Explorar Radio */}
-                <button
-                  onClick={() => setIsConeSearchOpen(true)}
-                  className="btn-ghost"
-                  title={t.exploreConeBtn}
-                  style={{ fontSize: 'var(--text-data)', padding: '5px 10px' }}
-                >
-                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                    <circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/>
-                  </svg>
-                  <span style={{ display: 'none' }} className="sm-show">Explorar</span>
-                  {coneResults.length > 0 && (
-                    <span style={{
-                      padding: '0 5px',
-                      borderRadius: 10,
-                      background: 'rgba(79,209,165,0.2)',
-                      color: '#4fd1a5',
-                      fontSize: 10,
-                      fontWeight: 700,
-                    }}>
-                      {coneResults.length}
-                    </span>
-                  )}
-                </button>
-
-                {/* Tour guiado */}
-                <button
-                  onClick={() => setIsTourOpen(true)}
-                  className="btn-icon"
-                  title={t.guidedTourBtn}
-                  aria-label={t.guidedTourBtn}
-                >
-                  <span style={{ fontWeight: 700, fontSize: 13 }}>?</span>
-                </button>
-
                 {/* Compartir */}
                 <button
                   onClick={copyShareLink}
-                  className="btn-ghost"
+                  className="link-text sm-show"
                   title={t.shareBtn}
-                  style={{ fontSize: 'var(--text-data)', padding: '5px 10px' }}
+                  style={{ fontSize: 'var(--text-data)' }}
                 >
-                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                    <path d="M4 12v8a2 2 0 002 2h12a2 2 0 002-2v-8M16 6l-4-4-4 4M12 2v13"/>
-                  </svg>
-                  <span>{copiedLink ? t.copiedTooltip : t.shareBtn}</span>
+                  {copiedLink ? t.copiedTooltip : t.shareBtn}
                 </button>
               </div>
             </header>
           )}
-
-          {/* Cinta espectral (6 detectores) */}
-          <div className="spectral-ribbon" role="presentation" aria-hidden="true" />
 
           {/* Mensaje de búsqueda */}
           {searchMessage && (
@@ -1031,6 +1083,7 @@ export default function Home() {
                   {/* Estado de carga */}
                   {isFrameLoading && (
                     <div
+                      className="sky-loader"
                       style={{
                         position: 'absolute',
                         inset: 0,
@@ -1094,51 +1147,17 @@ export default function Home() {
                     </div>
                   )}
 
-                  {/* Badge de tipo de astro */}
-                  <div
-                    style={{
-                      position: 'absolute',
-                      left: 12,
-                      top: 12,
-                      background: 'rgba(7,9,15,0.78)',
-                      backdropFilter: 'blur(8px)',
-                      border: '1px solid rgba(255,255,255,0.1)',
-                      borderRadius: 20,
-                      padding: '3px 10px',
-                      fontSize: 'var(--text-data)',
-                      fontWeight: 600,
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: 6,
-                      color: 'var(--ink)',
-                    }}
-                  >
-                    <span
-                      className="pulse-ring"
-                      style={{
-                        width: 7,
-                        height: 7,
-                        borderRadius: '50%',
-                        background: 'var(--acc)',
-                        display: 'inline-block',
-                        flexShrink: 0,
-                      }}
-                    />
-                    {target.badge}
-                  </div>
-
                   {/* Alerta de bandera de contaminación */}
                   {activeFlags.length > 0 && (
                     <div
                       style={{
                         position: 'absolute',
                         left: 12,
-                        top: 42,
+                        top: 12,
                         background: 'rgba(245, 158, 11, 0.15)',
-                        backdropFilter: 'blur(8px)',
                         border: '1px solid rgba(245, 158, 11, 0.45)',
-                        borderRadius: 20,
-                        padding: '2px 9px',
+                        borderRadius: 'var(--radius-sm, 4px)',
+                        padding: '2px 8px',
                         fontSize: '0.68rem',
                         fontWeight: 600,
                         color: '#fcd34d',
@@ -1148,137 +1167,118 @@ export default function Home() {
                       }}
                       title="Bandera de calidad astronómica en este fotograma"
                     >
-                      <span>⚡</span>
                       <span>Artefacto: {activeFlags.join(', ')}</span>
                     </div>
                   )}
+                </div>
 
-                  {/* Badge de radio de búsqueda con toggle para apagar/encender marcadores */}
-                  {coneResults.length > 0 && (
-                    <div
-                      style={{
-                        position: 'absolute',
-                        right: 12,
-                        top: 12,
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: 6,
-                      }}
-                    >
+                {/* Línea de estado discreta para Vecindario / Cone Search */}
+                {coneResults.length > 0 && (
+                  <div
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      padding: '8px 2px 4px',
+                      fontSize: 'var(--text-data)',
+                      color: 'var(--mute)',
+                      borderBottom: '1px solid var(--line)',
+                      marginBottom: 10,
+                    }}
+                  >
+                    <span>
+                      Radio {coneRadius}′: <strong style={{ color: 'var(--ink)' }}>{coneResults.length}</strong> objetos en el vecindario
+                    </span>
+                    <div style={{ display: 'flex', gap: 14 }}>
                       <button
                         type="button"
                         onClick={() => setShowConeOverlays((v) => !v)}
-                        style={{
-                          background: showConeOverlays ? 'rgba(7,9,15,0.88)' : 'rgba(7,9,15,0.6)',
-                          backdropFilter: 'blur(8px)',
-                          border: `1px solid ${showConeOverlays ? 'rgba(79,209,165,0.5)' : 'rgba(255,255,255,0.2)'}`,
-                          borderRadius: 20,
-                          padding: '3px 10px',
-                          fontSize: 'var(--text-data)',
-                          fontWeight: 700,
-                          color: showConeOverlays ? '#4fd1a5' : 'var(--muted)',
-                          cursor: 'pointer',
-                        }}
-                        title="Activar / Desactivar marcadores de cono sobre el visor"
+                        className="link-text"
+                        style={{ fontSize: 'var(--text-data)' }}
                       >
-                        🎯 Radio {coneRadius}′ · {coneResults.length} obj {showConeOverlays ? '✓' : '(ocultos)'}
+                        {showConeOverlays ? 'Ocultar marcadores' : 'Mostrar marcadores'}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setIsConeSearchOpen(true)}
+                        className="link-text"
+                        style={{ fontSize: 'var(--text-data)' }}
+                      >
+                        Ver catálogo
                       </button>
                     </div>
-                  )}
+                  </div>
+                )}
 
-                  {/* Floating Action Bar inside canvas (Fase 3: Parpadeo / Cortina / Cazador) */}
-                  <div
-                    style={{
-                      position: 'absolute',
-                      right: 12,
-                      bottom: 12,
-                      display: 'flex',
-                      gap: 6,
-                      background: 'rgba(7, 9, 15, 0.82)',
-                      backdropFilter: 'blur(8px)',
-                      padding: '4px',
-                      borderRadius: 8,
-                      border: '1px solid var(--line)',
-                    }}
-                  >
-                    {/* Blink comparator toggle */}
+                {/* Controles de comparación astronómica (Segmented control) */}
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8, marginTop: coneResults.length > 0 ? 0 : 8 }}>
+                  <div className="viewer-segmented-control" role="tablist" aria-label="Modo de comparación">
                     <button
                       type="button"
+                      role="tab"
+                      aria-selected={blinkMode}
+                      className={`segmented-item ${blinkMode ? 'active' : ''}`}
                       onClick={() => {
                         setCurtainEnabled(false);
+                        setAutoHunterEnabled(false);
                         setBlinkMode((b) => !b);
                       }}
-                      title="Alternar rápidamente entre épocas para ver movimiento (Tecla B)"
-                      style={{
-                        padding: '4px 8px',
-                        borderRadius: 5,
-                        border: `1px solid ${blinkMode ? 'var(--acc)' : 'transparent'}`,
-                        background: blinkMode ? 'var(--acc)' : 'transparent',
-                        color: blinkMode ? '#fff' : 'var(--ink)',
-                        fontSize: '0.72rem',
-                        fontWeight: 700,
-                        cursor: 'pointer',
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: 4,
-                      }}
                     >
-                      <span>⚡</span>
-                      <span>{t.blinkBtn}</span>
+                      {t.modeBlink}
                     </button>
-
-                    {/* Split curtain wipe toggle */}
                     <button
                       type="button"
+                      role="tab"
+                      aria-selected={curtainEnabled}
+                      className={`segmented-item ${curtainEnabled ? 'active' : ''}`}
                       onClick={() => {
                         setBlinkMode(false);
+                        setAutoHunterEnabled(false);
                         setCurtainEnabled((c) => !c);
                       }}
-                      title="Comparar dos épocas dividiendo la pantalla con una cortina arrastrable (Tecla C)"
-                      style={{
-                        padding: '4px 8px',
-                        borderRadius: 5,
-                        border: `1px solid ${curtainEnabled ? '#ffd34f' : 'transparent'}`,
-                        background: curtainEnabled ? '#ffd34f22' : 'transparent',
-                        color: curtainEnabled ? '#ffd34f' : 'var(--ink)',
-                        fontSize: '0.72rem',
-                        fontWeight: 700,
-                        cursor: 'pointer',
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: 4,
-                      }}
                     >
-                      <span>↔</span>
-                      <span>Cortina</span>
+                      {t.modeCurtain}
                     </button>
-
-                    {/* Auto-hunter candidate detector */}
                     <button
                       type="button"
-                      onClick={() => setAutoHunterEnabled((h) => !h)}
-                      title="Detección automática de candidatos a objetos móviles en el cliente (Tecla H)"
-                      style={{
-                        padding: '4px 8px',
-                        borderRadius: 5,
-                        border: `1px solid ${autoHunterEnabled ? '#facc15' : 'transparent'}`,
-                        background: autoHunterEnabled ? '#facc1522' : 'transparent',
-                        color: autoHunterEnabled ? '#facc15' : 'var(--ink)',
-                        fontSize: '0.72rem',
-                        fontWeight: 700,
-                        cursor: 'pointer',
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: 4,
+                      role="tab"
+                      aria-selected={autoHunterEnabled}
+                      className={`segmented-item ${autoHunterEnabled ? 'active' : ''}`}
+                      onClick={() => {
+                        setAutoHunterEnabled((h) => !h);
                       }}
                     >
-                      <span>★</span>
-                      <span>Cazador</span>
+                      {t.modeHunter}
                     </button>
                   </div>
+
+                  {blinkMode && (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 'var(--text-data)', color: 'var(--mute)' }}>
+                      <span>{t.blinkSpeed}:</span>
+                      {[1, 2, 4].map((hz) => (
+                        <button
+                          key={hz}
+                          type="button"
+                          onClick={() => setBlinkHz(hz)}
+                          style={{
+                            padding: '2px 6px',
+                            borderRadius: 'var(--radius-sm, 4px)',
+                            border: `1px solid ${blinkHz === hz ? 'var(--alert)' : 'var(--line)'}`,
+                            background: blinkHz === hz ? 'rgba(255,107,53,0.15)' : 'transparent',
+                            color: blinkHz === hz ? 'var(--alert)' : 'var(--mute)',
+                            fontSize: '0.72rem',
+                            fontWeight: 600,
+                            cursor: 'pointer',
+                          }}
+                        >
+                          {hz} Hz
+                        </button>
+                      ))}
+                    </div>
+                  )}
                 </div>
 
-                {/* Playbar con cinta espectral interactiva como rail */}
+                {/* Playbar con cinta espectral interactiva como rail funcional */}
                 <div className="viewer-playbar">
                   <button
                     onClick={() => {
@@ -1288,31 +1288,28 @@ export default function Home() {
                     }}
                     aria-label={playing ? 'Pausar' : 'Reproducir'}
                     style={{
-                      width: 40,
-                      height: 40,
-                      borderRadius: '50%',
-                      border: 'none',
-                      background: 'var(--acc)',
-                      color: '#fff',
+                      width: 36,
+                      height: 36,
+                      borderRadius: 'var(--radius-sm, 4px)',
+                      border: '1px solid var(--line)',
+                      background: 'var(--panel-raised)',
+                      color: 'var(--ink)',
                       cursor: 'pointer',
                       display: 'flex',
                       alignItems: 'center',
                       justifyContent: 'center',
                       flexShrink: 0,
-                      fontSize: 13,
-                      fontWeight: 700,
                     }}
                   >
                     {playing ? (
-                      <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>
+                      <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>
                     ) : (
-                      <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><polygon points="5,3 19,12 5,21"/></svg>
+                      <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><polygon points="5,3 19,12 5,21"/></svg>
                     )}
                   </button>
 
                   <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 4, minWidth: 0 }}>
                     <div style={{ position: 'relative', height: 20, display: 'flex', alignItems: 'center' }}>
-                      <div className="spectral-ribbon-thin" style={{ position: 'absolute', top: '50%', transform: 'translateY(-50%)', zIndex: 0 }} />
                       <input
                         type="range"
                         min="0"
@@ -1342,7 +1339,7 @@ export default function Home() {
                         <span
                           key={d}
                           style={{
-                            color: idx === currEpochIdx ? 'var(--acc)' : 'var(--mute)',
+                            color: idx === currEpochIdx ? 'var(--alert)' : 'var(--mute)',
                             fontWeight: idx === currEpochIdx ? 700 : 400,
                           }}
                         >
@@ -1352,141 +1349,162 @@ export default function Home() {
                     </div>
                   </div>
                 </div>
+
+                {/* Vía de datos real: 6 segmentos de detector SPHEREx (0,75 a 5,0 µm) */}
+                <div style={{ marginTop: 10, display: 'flex', flexDirection: 'column', gap: 4 }}>
+                  <div className="spectral-data-rail" title="Vía de 6 detectores SPHEREx">
+                    {[
+                      { id: 0, color: '#6366f1' },
+                      { id: 1, color: '#06b6d4' },
+                      { id: 2, color: '#10b981' },
+                      { id: 3, color: '#eab308' },
+                      { id: 4, color: '#f97316' },
+                      { id: 5, color: '#ef4444' },
+                    ].map((det) => {
+                      const activeDetectorIdx = selectedWavelength < 1.11 ? 0 : selectedWavelength < 1.64 ? 1 : selectedWavelength < 2.42 ? 2 : selectedWavelength < 3.82 ? 3 : selectedWavelength < 4.42 ? 4 : 5;
+                      const isActive = activeDetectorIdx === det.id || bandOn[det.id];
+                      return (
+                        <div
+                          key={det.id}
+                          className={`spectral-data-segment ${isActive ? 'active' : 'inactive'}`}
+                          style={{ background: det.color }}
+                          onClick={() => {
+                            const centerW = [0.93, 1.38, 2.03, 3.12, 4.12, 4.71][det.id];
+                            setSelectedWavelength(centerW);
+                            const next = [false, false, false, false, false, false];
+                            next[det.id] = true;
+                            setBandOn(next);
+                          }}
+                          title={t.detectorBands[det.id]}
+                        />
+                      );
+                    })}
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 'var(--text-data)', color: 'var(--mute)' }}>
+                    <span>
+                      {t.detectorBands[selectedWavelength < 1.11 ? 0 : selectedWavelength < 1.64 ? 1 : selectedWavelength < 2.42 ? 2 : selectedWavelength < 3.82 ? 3 : selectedWavelength < 4.42 ? 4 : 5]}
+                    </span>
+                    <span style={{ fontVariantNumeric: 'tabular-nums', opacity: 0.85 }}>
+                      {selectedWavelength.toFixed(2)} µm
+                    </span>
+                  </div>
+                </div>
               </div>
 
-              {/* Columna derecha: información y controles científicos */}
+              {/* Columna derecha: Ficha de campo astronómico */}
               <aside className="viewer-info-col">
                 <div>
-                  <h2
+                  <h1
                     style={{
                       fontFamily: 'var(--font-display)',
-                      fontSize: 'var(--text-heading)',
+                      fontSize: '1.45rem',
                       fontWeight: 400,
                       lineHeight: 1.15,
-                      margin: '0 0 4px',
+                      margin: '0 0 6px',
                       color: 'var(--ink)',
+                      letterSpacing: '-0.01em',
                     }}
                   >
                     {target.n}
-                  </h2>
-                  <p style={{ color: 'var(--acc)', fontWeight: 600, fontSize: 'var(--text-body)', margin: '0 0 8px' }}>
-                    {target.tag}
-                  </p>
-                  <p style={{ color: 'var(--ink)', fontSize: 'var(--text-caption)', lineHeight: 1.55, margin: 0 }}>
-                    {target.hook}
+                  </h1>
+                  <p style={{ color: 'var(--mute)', fontSize: 'var(--text-body)', margin: '0 0 16px', lineHeight: 1.45 }}>
+                    {target.tag} — {target.hook}
                   </p>
                 </div>
 
-                {/* Facts verificados con citas */}
-                <div
-                  style={{
-                    display: 'flex',
-                    gap: 20,
-                    flexWrap: 'wrap',
-                    padding: '10px 0',
-                    borderTop: '1px solid var(--line)',
-                    borderBottom: '1px solid var(--line)',
-                  }}
+                {/* Tres cifras clave en tabla limpia con cita de fuentes */}
+                <div style={{ margin: '0 0 16px' }}>
+                  <table className="metric-table" style={{ width: '100%' }}>
+                    <thead>
+                      <tr>
+                        {target.f.map(([label]) => (
+                          <th key={label}>{label}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr>
+                        {target.f.map(([label, val]) => (
+                          <td key={label}>{val}</td>
+                        ))}
+                      </tr>
+                    </tbody>
+                  </table>
+                  <div style={{ fontSize: '0.68rem', color: 'var(--mute)', marginTop: 4 }}>
+                    {t.citationSources}
+                  </div>
+                </div>
+
+                {/* Botón primario de la pantalla: "Reto: ¿dónde está?" */}
+                <button
+                  onClick={() => setIsRetoOpen(true)}
+                  className="btn-primary"
+                  style={{ width: '100%', marginBottom: 12, padding: '9px 16px' }}
                 >
-                  {target.f.map(([label, val]) => (
-                    <div key={label}>
-                      <div
-                        style={{
-                          fontVariantNumeric: 'tabular-nums',
-                          fontSize: '1.1rem',
-                          fontWeight: 700,
-                          color: 'var(--ink)',
-                          lineHeight: 1.2,
-                        }}
-                      >
-                        {val}
-                      </div>
-                      <div style={{ fontSize: 'var(--text-data)', color: 'var(--mute)' }}>{label}</div>
-                    </div>
-                  ))}
-                </div>
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                    <circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="3"/>
+                  </svg>
+                  {t.retoBtn}
+                </button>
 
-                {/* Acciones principales: Reto, Mapa y Exportaciones */}
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 8 }}>
-                  <button
-                    onClick={() => setIsRetoOpen(true)}
-                    className="btn-primary"
-                  >
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-                      <circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="3"/>
-                    </svg>
-                    {t.retoBtn}
-                  </button>
-
-                  <button
-                    onClick={() => setIsMapOpen(true)}
-                    className="btn-ghost"
-                  >
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                      <polygon points="3,6 9,3 15,6 21,3 21,18 15,21 9,18 3,21"/>
-                    </svg>
-                    Contexto Aladin
-                  </button>
-
-                  {/* Exportar GIF animado */}
-                  <button
-                    onClick={handleExportGif}
-                    disabled={exportingGif}
-                    className="btn-ghost"
-                    title="Exportar GIF animado de 4 épocas con marca SPHEREx"
-                  >
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                      <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M7 10l5 5 5-5M12 15V3"/>
-                    </svg>
-                    {t.exportGifBtn}
-                  </button>
-
-                  {/* Ficha de hallazgo PNG para redes */}
-                  <button
-                    onClick={handleExportCard}
-                    className="btn-ghost"
-                    title="Descargar Ficha Telegrama de Detección para compartir"
-                  >
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                      <rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/>
-                    </svg>
-                    {t.exportCardBtn}
-                  </button>
-                </div>
-
-                {/* Interruptor principal: "Resaltar lo que cambia" */}
+                {/* Interruptor de una sola línea para "Resaltar lo que cambia" */}
                 <div
                   id="tour-highlight-switch"
                   style={{
-                    background: 'var(--panel-raised)',
-                    border: '1px solid var(--line)',
-                    borderRadius: 10,
-                    padding: '12px 14px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    padding: '8px 0',
+                    borderTop: '1px solid var(--line)',
+                    borderBottom: '1px solid var(--line)',
+                    marginBottom: 14,
                   }}
                 >
                   <label
+                    htmlFor="highlight-toggle"
                     style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: 10,
-                      cursor: 'pointer',
-                      fontWeight: 600,
                       fontSize: 'var(--text-body)',
+                      fontWeight: 500,
                       color: 'var(--ink)',
+                      cursor: 'pointer',
                       userSelect: 'none',
                     }}
                   >
-                    <input
-                      type="checkbox"
-                      checked={highlight}
-                      onChange={(e) => setHighlight(e.target.checked)}
-                      style={{ width: 18, height: 18, accentColor: 'var(--acc)', cursor: 'pointer' }}
-                    />
                     {t.highlightSwitch}
                   </label>
-                  <p style={{ fontSize: 'var(--text-caption)', color: 'var(--mute)', margin: '6px 0 0 28px' }}>
-                    {target.type === 'var' ? t.highlightSwitchDescVar : t.highlightSwitchDescMov}
-                  </p>
+                  <input
+                    id="highlight-toggle"
+                    type="checkbox"
+                    checked={highlight}
+                    onChange={(e) => setHighlight(e.target.checked)}
+                    style={{ accentColor: 'var(--alert)', width: 16, height: 16, cursor: 'pointer' }}
+                  />
+                </div>
+
+                {/* Enlaces secundarios en texto */}
+                <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap', marginBottom: 16 }}>
+                  <button
+                    type="button"
+                    onClick={() => setIsMapOpen(true)}
+                    className="link-text"
+                  >
+                    {t.aladinContext}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleExportGif}
+                    disabled={exportingGif}
+                    className="link-text"
+                  >
+                    {exportingGif ? t.generatingGif : t.exportGifBtn}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleExportCard}
+                    className="link-text"
+                  >
+                    {t.exportCardBtn}
+                  </button>
                 </div>
 
                 {/* ========================================================= */}
@@ -1532,10 +1550,10 @@ export default function Home() {
                             }}
                             style={{
                               padding: '6px 4px',
-                              borderRadius: 6,
-                              border: `1px solid ${displayMode === m.id ? 'var(--acc)' : 'var(--line)'}`,
-                              background: displayMode === m.id ? 'var(--acc)' : 'transparent',
-                              color: displayMode === m.id ? '#ffffff' : 'var(--ink)',
+                              borderRadius: 'var(--radius-sm, 4px)',
+                              border: `1px solid ${displayMode === m.id ? 'var(--ink)' : 'var(--line)'}`,
+                              background: displayMode === m.id ? 'var(--panel-raised)' : 'transparent',
+                              color: displayMode === m.id ? 'var(--ink)' : 'var(--mute)',
                               fontSize: 'var(--text-data)',
                               fontWeight: 600,
                               cursor: 'pointer',
@@ -1568,10 +1586,10 @@ export default function Home() {
                             onClick={() => setStretchFn(s.id as any)}
                             style={{
                               padding: '5px 4px',
-                              borderRadius: 6,
-                              border: `1px solid ${stretchFn === s.id ? 'var(--acc)' : 'var(--line)'}`,
-                              background: stretchFn === s.id ? 'rgba(212,79,110,0.2)' : 'transparent',
-                              color: stretchFn === s.id ? 'var(--acc-hi)' : 'var(--mute)',
+                              borderRadius: 'var(--radius-sm, 4px)',
+                              border: `1px solid ${stretchFn === s.id ? 'var(--ink)' : 'var(--line)'}`,
+                              background: stretchFn === s.id ? 'var(--panel-raised)' : 'transparent',
+                              color: stretchFn === s.id ? 'var(--ink)' : 'var(--mute)',
                               fontSize: 'var(--text-data)',
                               fontWeight: 600,
                               cursor: 'pointer',
@@ -1600,10 +1618,10 @@ export default function Home() {
                             onClick={() => setColormapType(c.id as any)}
                             style={{
                               padding: '5px 4px',
-                              borderRadius: 6,
-                              border: `1px solid ${colormapType === c.id ? 'var(--acc)' : 'var(--line)'}`,
-                              background: colormapType === c.id ? 'rgba(212,79,110,0.2)' : 'transparent',
-                              color: colormapType === c.id ? 'var(--acc-hi)' : 'var(--mute)',
+                              borderRadius: 'var(--radius-sm, 4px)',
+                              border: `1px solid ${colormapType === c.id ? 'var(--ink)' : 'var(--line)'}`,
+                              background: colormapType === c.id ? 'var(--panel-raised)' : 'transparent',
+                              color: colormapType === c.id ? 'var(--ink)' : 'var(--mute)',
                               fontSize: 'var(--text-data)',
                               fontWeight: 600,
                               cursor: 'pointer',
@@ -1621,7 +1639,7 @@ export default function Home() {
                         <span style={{ fontSize: 'var(--text-caption)', color: 'var(--mute)' }}>
                           {t.wavelengthSlider}:
                         </span>
-                        <span style={{ fontSize: 'var(--text-data)', color: '#ffd34f', fontWeight: 700 }}>
+                        <span style={{ fontSize: 'var(--text-data)', color: 'var(--alert)', fontWeight: 700 }}>
                           {selectedWavelength.toFixed(2)} µm
                         </span>
                       </div>
@@ -1676,7 +1694,7 @@ export default function Home() {
                             setBandOn([true, true, true, true, true, true]);
                           }}
                           className="btn-ghost"
-                          style={{ fontSize: '0.68rem', padding: '3px 8px', borderColor: 'var(--acc)', color: 'var(--acc-hi)' }}
+                          style={{ fontSize: '0.68rem', padding: '3px 8px', borderColor: 'var(--alert)', color: 'var(--alert)' }}
                         >
                           {t.presetSumAll}
                         </button>
@@ -1728,7 +1746,7 @@ export default function Home() {
                         type="checkbox"
                         checked={showCatalogOverlays}
                         onChange={(e) => setShowCatalogOverlays(e.target.checked)}
-                        style={{ accentColor: 'var(--acc)', cursor: 'pointer' }}
+                        style={{ accentColor: 'var(--alert)', cursor: 'pointer' }}
                       />
                       <label htmlFor="cat-overlay" style={{ fontSize: 'var(--text-caption)', color: 'var(--ink)', cursor: 'pointer' }}>
                         {t.catalogOverlayLabel}
