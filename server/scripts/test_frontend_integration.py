@@ -1,0 +1,168 @@
+"""M3.5 browser regression checks using installed Chromium and CDP.
+Run with Next.js :3000 and FastAPI :8000. Screenshots use authentic cached data.
+"""
+import asyncio
+import base64
+import json
+import os
+import signal
+import subprocess
+import tempfile
+from pathlib import Path
+import httpx
+import websockets
+from test_browser_e2e import CHROME_PATH
+FRONTEND=os.environ.get('SPHEREX_FRONTEND_URL','http://localhost:3000')
+
+async def main():
+    with tempfile.TemporaryDirectory(prefix='spherex-ux-') as profile:
+        proc = subprocess.Popen([os.environ.get('CHROME_PATH', CHROME_PATH), '--headless=new', '--no-sandbox', '--disable-gpu', '--remote-debugging-port=9230', f'--user-data-dir={profile}', 'about:blank'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
+        try:
+            for _ in range(40):
+                try:
+                    targets = httpx.get('http://127.0.0.1:9230/json').json()
+                    break
+                except httpx.HTTPError:
+                    await asyncio.sleep(.25)
+            async with websockets.connect(next(t['webSocketDebuggerUrl'] for t in targets if t['type']=='page'), max_size=25000000) as ws:
+                counter = 0
+                runtime_errors = []
+                async def cdp_call(ws, method, params, msg_id):
+                    await ws.send(json.dumps({'id':msg_id, 'method':method, 'params':params or {}}))
+                    while True:
+                        event = json.loads(await ws.recv())
+                        if event.get('method') == 'Runtime.exceptionThrown': runtime_errors.append(event)
+                        if event.get('method') == 'Runtime.consoleAPICalled' and event['params'].get('type') == 'error': runtime_errors.append(event)
+                        if event.get('id') == msg_id: return event
+                async def call(method, params=None):
+                    nonlocal counter
+                    counter += 1
+                    return (await cdp_call(ws, method, params, counter)).get('result', {})
+                async def js(expr):
+                    result = await call('Runtime.evaluate', {'expression': expr, 'returnByValue': True, 'awaitPromise': True})
+                    assert 'exceptionDetails' not in result, result
+                    return result.get('result',{}).get('value')
+                async def wait(expr):
+                    for _ in range(80):
+                        if await js(expr): return
+                        await asyncio.sleep(.25)
+                    raise AssertionError(expr + '\n' + str(await js('document.body.innerText')))
+                async def click(text):
+                    assert await js(f"(()=>{{const b=[...document.querySelectorAll('button')].find(b=>b.textContent.trim()==={json.dumps(text)}); if(!b || b.disabled)return false; b.click(); return true;}})()"), text
+                    await asyncio.sleep(.15)
+                await call('Page.enable')
+                await call('Runtime.enable')
+                await call('Browser.setDownloadBehavior', {'behavior':'allow', 'downloadPath':profile})
+                for mode, size in [('real',30), ('mock',256)]:
+                    await call('Page.navigate', {'url': f'{FRONTEND}/?api={mode}'})
+                    await wait(f"document.querySelector('canvas')?.width==={size} && document.querySelectorAll('.epoch-selector button').length === {2 if mode=='real' else 4}")
+                    assert await js("document.querySelector('.origin').textContent.includes("+json.dumps('Datos reales' if mode=='real' else 'Simulación')+")")
+                    assert not await js("document.querySelector('.advanced-tools').open")
+                    await click('Activar parpadeo')
+                    dates = set()
+                    for _ in range(8):
+                        dates.add(await js("document.querySelector('.active-date').textContent"))
+                        await asyncio.sleep(.2)
+                    assert len(dates)>=2, dates
+                    await click('Pausar parpadeo')
+                    date = await js("document.querySelector('.active-date').textContent")
+                    await asyncio.sleep(.7)
+                    assert date == await js("document.querySelector('.active-date').textContent")
+                    await js("document.querySelector('.epoch-selector button').click()")
+                    await click('Diferencia')
+                    assert await js("document.querySelector('.mode-selector button:nth-child(2)').getAttribute('aria-pressed')==='true'")
+                    assert await js("document.querySelector('.epoch-selector button:nth-child(2)').getAttribute('aria-pressed')==='true'")
+                    if mode=='real':
+                        assert await js("!document.body.innerText.includes('Gaia DR3')")
+                        assert await js("document.querySelector('canvas').getContext('2d').getImageData(0,0,30,30).data.some(v=>v===43)")
+                    await click('Normal')
+                    for label,w,h in [('desktop',1440,900),('mobile',390,844)]:
+                        await call('Emulation.setDeviceMetricsOverride', {'width':w,'height':h,'deviceScaleFactor':1,'mobile':False})
+                        await asyncio.sleep(.3)
+                        assert await js('document.documentElement.scrollWidth <= window.innerWidth'), (mode,label)
+                        assert await js("(()=>{const image=document.querySelector('.viewer-canvas-col').getBoundingClientRect();const info=document.querySelector('.viewer-info-col').getBoundingClientRect();return innerWidth>=1024?info.left>=image.right-1:info.top>=image.bottom-1;})()")
+                        assert await js("document.querySelector('.viewer-viewport canvas').getBoundingClientRect().width > (innerWidth>=1024?400:280)")
+                        if label=='desktop': assert await js("document.querySelector('header').getBoundingClientRect().height<=60")
+                        metrics = await call('Page.getLayoutMetrics')
+                        bounds = metrics['cssContentSize']
+                        data = await call('Page.captureScreenshot', {'format':'png', 'captureBeyondViewport':True, 'clip':{**bounds, 'scale':1}})
+                        dest=Path(__file__).resolve().parents[2]/'docs/assets'/f'{os.environ.get("SPHEREX_SCREENSHOT_PREFIX","reference-layout")}-{mode}-{label}.png'
+                        dest.write_bytes(base64.b64decode(data['data']))
+                    await js("document.querySelector('.advanced-tools').open=true")
+                    await js("document.querySelector('.technical-details').open=true")
+                    assert await js("document.querySelector('.viewer-info-col').innerText.includes("+json.dumps('2026W' if mode=='real' else 'Modo Detective')+")")
+                    await js("document.querySelector('.viewer-advanced').open=true")
+                    await js("document.querySelector('.viewer-advanced input[type=checkbox]').click()")
+                    assert await js("document.body.innerText.includes('Cortina:')")
+                    await js("document.querySelector('.curtain-divider button').focus()")
+                    await call('Input.dispatchKeyEvent', {'type':'keyDown','key':'ArrowRight','code':'ArrowRight'})
+                    await asyncio.sleep(.1)
+                    assert await js("parseFloat(document.querySelector('.curtain-divider').style.left)>50")
+                    await js("document.querySelector('.viewer-advanced input[type=checkbox]').click()")
+                    if mode=='mock':
+                        await js("[...document.querySelectorAll('summary')].find(s=>s.textContent.includes('Espectro interactivo')).click()")
+                        await wait("document.querySelectorAll('canvas').length>1")
+                        await click('Explorar vecindario')
+                        await wait("!!document.querySelector('[aria-label=\"Vecindario celeste\"]')")
+                        await js("[...document.querySelectorAll('label')].find(l=>l.textContent.includes('Catálogo simulado')).querySelector('input').click()")
+                        await asyncio.sleep(1)
+                        assert await js("!!document.querySelector('[aria-label=\"Vecindario celeste\"] svg')")
+                        await call('Input.dispatchKeyEvent', {'type':'keyDown','key':'Escape','code':'Escape'})
+                        await wait("!document.querySelector('[aria-label=\"Vecindario celeste\"]')")
+                    await click('Descargar PNG')
+                    await click('Descargar GIF')
+                    for _ in range(50):
+                        if list(Path(profile).glob('*.png')) and list(Path(profile).glob('*.gif')): break
+                        await asyncio.sleep(.1)
+                    assert list(Path(profile).glob('*.png')) and list(Path(profile).glob('*.gif'))
+                    for file in Path(profile).glob('SPHEREx*'): file.unlink()
+                    await js("document.activeElement?.blur()")
+                    await call('Input.dispatchKeyEvent', {'type':'keyDown','key':'d','code':'KeyD'})
+                    await call('Input.dispatchKeyEvent', {'type':'keyUp','key':'d','code':'KeyD'})
+                    assert await js("document.querySelector('.mode-selector button:nth-child(2)').getAttribute('aria-pressed')==='true'")
+                    await click('Normal')
+                    await js("document.querySelector('.secondary-menu').open=true")
+                    await click('Atajos de teclado')
+                    await wait("!!document.querySelector('[role=dialog]')")
+                    await call('Input.dispatchKeyEvent', {'type':'keyDown','key':'Escape','code':'Escape'})
+                    await wait("!document.querySelector('[role=dialog]')")
+                    print(f'PASS {mode}: frames, blink, pause, difference, advanced tools, desktop/mobile screenshots')
+                await js("(()=>{const s=document.querySelector('select[aria-label=Idioma]');s.value='en';s.dispatchEvent(new Event('change',{bubbles:true}));})()")
+                await wait("document.querySelector('header').textContent.includes('Compare infrared')")
+                assert await js("location.search.includes('lang=en')")
+                assert not runtime_errors, runtime_errors
+                await call('Page.navigate', {'url':f'{FRONTEND}/?api=real&ra=0&dec=0'})
+                await wait("document.body.innerText.includes('Error') || document.body.innerText.includes('error')")
+                assert await js("document.querySelector('.primary-action').disabled")
+                print('PASS unsupported real region: explicit error and disabled playback')
+                await call('Page.navigate', {'url':f'{FRONTEND}/?api=mock&embed=1'})
+                await wait("document.querySelector('canvas')?.width===256 && !document.querySelector('header')")
+                assert await js("!document.querySelector('header')")
+                print('PASS synthetic embed URL')
+                await call('Page.navigate', {'url':f'{FRONTEND}/?api=real'})
+                await wait("document.querySelector('canvas')?.width===30 && !!document.querySelector('.back-target')")
+                await js("document.querySelector('.back-target').click()")
+                await wait("!document.querySelector('.reference-header')")
+                assert await js("document.body.innerText.includes('M101')")
+                print('PASS reference landing navigation')
+                reference=os.environ.get('SPHEREX_REFERENCE_URL')
+                if reference:
+                    for label,w,h in [('desktop',1440,900),('mobile',390,844)]:
+                        await call('Emulation.setDeviceMetricsOverride', {'width':w,'height':h,'deviceScaleFactor':1,'mobile':False})
+                        await call('Page.navigate', {'url':f'{reference}/?api=mock'})
+                        await wait("!!document.querySelector('.viewer-shell canvas')")
+                        await asyncio.sleep(1)
+                        metrics=await call('Page.getLayoutMetrics')
+                        data=await call('Page.captureScreenshot', {'format':'png','captureBeyondViewport':True,'clip':{**metrics['cssContentSize'],'scale':1}})
+                        (Path(__file__).resolve().parents[2]/'docs/assets'/f'original-reference-{label}.png').write_bytes(base64.b64decode(data['data']))
+                    print('PASS source reference screenshots')
+        finally:
+            try:
+                os.killpg(proc.pid, signal.SIGTERM)
+            except ProcessLookupError:
+                pass
+            proc.wait(timeout=10)
+            await asyncio.sleep(.5)
+
+if __name__ == '__main__':
+    asyncio.run(main())
