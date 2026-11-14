@@ -1,0 +1,17 @@
+node_modules
+.next
+out
+coverage
+.git
+.env*
+*.pem
+*.key
+*.tsbuildinfo
+next-env.d.ts
+npm-debug.log*
+Dockerfile*
+.dockerignore
+.npmrc
+**/*.fits
+**/*.fits.gz
+**/*.fz

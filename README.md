@@ -9,6 +9,21 @@ Planet X or confirmed moving objects.
 - `server/`: authoritative Python / FastAPI / Astropy scientific service.
 - `docs/`: API contract, scientific limitations and verification evidence.
 
+## Arranque con Docker
+
+```sh
+docker compose up -d
+```
+
+Abre http://localhost:3000. La primera ejecución prepara automáticamente las
+observaciones reales de M101 y necesita internet. Los datos quedan en un volumen
+persistente; no se incluyen en las imágenes. Si IRSA falla, el error es explícito
+y no se sustituye por una simulación. `data-init` debe finalizar con código 0.
+
+[Guía Docker](docs/docker.md): puertos, logs, reconstrucción, respaldo y recuperación.
+
+## Desarrollo sin Docker
+
 Start the scientific service:
 
 ```sh

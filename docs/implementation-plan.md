@@ -83,3 +83,11 @@ Evidence and limitations: `docs/ux-redesign.md`, `docs/assets/ux-*.png`.
 - **Reviewer/integration agent:** API contracts, tests, provenance, performance and demo verification.
 
 Avoid parallel edits to `frontend/lib/apiAdapter.ts`, `lib/types.ts` and `store/useSpherexStore.ts` without an agreed owner. Have each contributor report paths touched and verified commands.
+
+## Docker Compose — despliegue local de producción
+- [x] Imágenes multietapa Node/Python con locks y usuarios sin privilegios.
+- [x] Preparación automática real, volumen persistente y proxy por red Compose.
+- [x] Arranque desde volumen vacío, healthchecks, reinicios y reutilización verificados.
+- [x] Fallos de datos explícitos y E2E Chromium contra contenedores.
+
+Comandos y evidencia: `docs/docker.md`. ARM64 y restauración de respaldos no probados.

@@ -66,3 +66,12 @@ epoch references and mask lengths and converts pixel arrays to Float32Array.
 Request cancellation/sequence checks discard outdated results; bounded client
 cache keys contain origin and full query values. SpectrumViewer remains synthetic
 only. Catalog queries are separate external context, never SPHEREx detections.
+
+## Docker Compose
+
+El esquema HTTP no cambia. `SPHEREX_API_INTERNAL_URL` selecciona el destino
+servidor del rewrite durante `next build`; predeterminado local
+`http://127.0.0.1:8000`, en Compose `http://backend:8000`. El navegador sigue
+consultando `/api/*` en el mismo origen. FastAPI no publica un puerto al host.
+La inicialización del volumen científico precede al backend y frontend; fallos
+de adquisición no se reemplazan con datos sintéticos. Ver `docs/docker.md`.

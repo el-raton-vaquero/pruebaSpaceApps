@@ -158,3 +158,21 @@ backend con caché auténtica externa y Chromium real/mock escritorio/móvil.
 Este clon no incluye los FITS: sin SPHEREX_DATA_DIR o preparación local, los
 endpoints reales retornan indisponibilidad y tres pruebas de dataset fallan.
 El merge queda resuelto en el índice, pendiente del commit del usuario.
+
+## Docker Compose — 2026-11-14
+
+Implementado arranque de producción con `docker compose up -d`: preparación
+M101 automática, FastAPI y Next.js standalone. La caché usa volumen nombrado;
+FastAPI lo monta en solo lectura, el proxy interno usa `backend:8000`, y solo se
+publica el frontend :3000 (configurable con FRONTEND_PORT). Los servicios usan
+UID/GID 10001. Los locks científicos y el contrato JSON no cambiaron.
+
+Verificado realmente tras activar Docker: construcción de imágenes, primera
+adquisición real en volumen vacío, healthchecks, dos frames M101 por el proxy,
+fallos controlados sin fallback, persistencia por hashes tras restart/down/up y
+Chromium E2E real/mock escritorio/móvil. Data-init reutiliza caché válida y termina
+en 0; un fallo de preparación bloquea los servidores dependientes. Pruebas locales:
+lint/TypeScript/frontend y 47 científicas pasan con las advertencias existentes.
+
+Ver `docs/docker.md` para comandos, evidencia, respaldo y límites. Capturas en
+`docs/assets/docker-*.png`. No se incorporaron FITS ni cachés al repositorio.

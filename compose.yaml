@@ -1,0 +1,55 @@
+services:
+  data-init:
+    build:
+      context: ./server
+      target: runtime
+    command: ["python", "-m", "spherex.prepare", "--output", "/data/m101"]
+    environment:
+      SPHEREX_DATA_DIR: /data/m101
+    volumes:
+      - spherex-data:/data
+    restart: "no"
+    init: true
+
+  backend:
+    build:
+      context: ./server
+      target: runtime
+    environment:
+      SPHEREX_DATA_DIR: /data/m101
+    volumes:
+      - spherex-data:/data:ro
+    depends_on:
+      data-init:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "python", "-c", "import json, urllib.request; r=json.load(urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=5)); assert r['status']=='ok' and r['m101_cached'] is True"]
+      interval: 15s
+      timeout: 10s
+      start_period: 30s
+      retries: 5
+    restart: unless-stopped
+    init: true
+
+  frontend:
+    build:
+      context: ./frontend
+      target: runtime
+      args:
+        SPHEREX_API_INTERNAL_URL: http://backend:8000
+    ports:
+      - "${FRONTEND_PORT:-3000}:3000"
+    depends_on:
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 15s
+      timeout: 10s
+      start_period: 20s
+      retries: 5
+    restart: unless-stopped
+    init: true
+
+volumes:
+  spherex-data:

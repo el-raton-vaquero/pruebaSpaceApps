@@ -219,3 +219,9 @@ pyrightconfig.json
 # Frontend source modules are not Python lib build artifacts.
 !frontend/lib/
 !frontend/lib/**
+
+# Document optional Compose configuration without tracking local values.
+!.env.example
+
+# Local scientific volume backups
+/backups/
